@@ -2060,9 +2060,10 @@
             const handleReloadModels = async (provider) => {
                 setReloading(prev => ({ ...prev, [provider]: true }));
                 try {
-                    const data = await api.get('/ai/settings');
-                    if (data?.models?.[provider]) {
-                        setModels(prev => ({ ...prev, [provider]: data.models[provider] }));
+                    // Call the dynamic models endpoint
+                    const data = await api.get(`/ai/models/${provider}`);
+                    if (data?.models?.length > 0) {
+                        setModels(prev => ({ ...prev, [provider]: data.models }));
                     }
                 } catch (err) {
                     console.error('Failed to reload models:', err);

@@ -317,6 +317,49 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
+        # Fetch models dynamically for a provider
+        if '/ai/models/' in path:
+            provider = path.split('/')[-1]
+            user_id = self._get_user_id()
+
+            if not user_id:
+                self._json_response(200, {"models": [], "error": "Not logged in"})
+                return
+
+            settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+            if not settings:
+                self._json_response(200, {"models": [], "error": "No settings found"})
+                return
+
+            s = settings[0]
+            api_key = s.get(f'{provider}_api_key')
+
+            if not api_key:
+                # Return static models if no API key
+                if provider == 'claude':
+                    self._json_response(200, {"models": CLAUDE_MODELS})
+                elif provider == 'gemini':
+                    self._json_response(200, {"models": GEMINI_MODELS})
+                elif provider == 'openai':
+                    self._json_response(200, {"models": OPENAI_MODELS})
+                else:
+                    self._json_response(200, {"models": []})
+                return
+
+            # Fetch models dynamically
+            if provider == 'claude':
+                # Claude doesn't have a models API, return static list
+                self._json_response(200, {"models": CLAUDE_MODELS})
+            elif provider == 'gemini':
+                result = validate_gemini_key_with_models(api_key)
+                self._json_response(200, {"models": result.get('models', GEMINI_MODELS)})
+            elif provider == 'openai':
+                result = validate_openai_key(api_key)
+                self._json_response(200, {"models": result.get('models', OPENAI_MODELS)})
+            else:
+                self._json_response(200, {"models": []})
+            return
+
         if path == '/progress':
             self._json_response(200, {"by_topic": [], "overall": {"questions_attempted": 0, "questions_correct": 0, "accuracy": 0}, "weak_points_count": 0})
             return
