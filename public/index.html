@@ -1069,7 +1069,7 @@
             const questionRefs = React.useRef([]);
 
             useEffect(() => {
-                api.get(`/topics/${topicCode}/test-yourself`).then(data => {
+                api.get(`/test-yourself/${topicCode}`).then(data => {
                     setQuestions(data || []);
                     setLoading(false);
                 });
@@ -1588,7 +1588,7 @@
                         {/* Typing Practice */}
                         {typingSettings?.enabled ? (
                             <TypingPractice
-                                textToType={current.mark_scheme || current.model_answer || 'No model answer'}
+                                text={current.mark_scheme || current.model_answer || 'No model answer available'}
                                 onComplete={() => {
                                     confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
                                     if (currentIndex < questions.length - 1) {
@@ -1596,6 +1596,7 @@
                                     }
                                 }}
                                 settings={typingSettings}
+                                label="Model Answer"
                             />
                         ) : (
                             <div className="bg-yellow-50 p-4 rounded-lg text-yellow-700">
