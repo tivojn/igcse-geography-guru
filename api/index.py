@@ -4,6 +4,7 @@ Vercel Serverless API for IGCSE Geography Guru
 from http.server import BaseHTTPRequestHandler
 import json
 import os
+import re
 import urllib.request
 import urllib.error
 import uuid
@@ -87,33 +88,138 @@ def validate_claude_key(api_key):
         return {"valid": False, "error": str(e)}
 
 def validate_gemini_key(api_key):
-    """Validate Gemini API key by listing models"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    req = urllib.request.Request(url)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return {"valid": True, "models": GEMINI_MODELS}
-    except urllib.error.HTTPError as e:
-        if e.code == 400 or e.code == 401 or e.code == 403:
-            return {"valid": False, "error": "Invalid API key"}
-        return {"valid": False, "error": f"Error: {e.code}"}
-    except Exception as e:
-        return {"valid": False, "error": str(e)}
+    """Validate Gemini API key and fetch available models"""
+    return validate_gemini_key_with_models(api_key)
 
 def validate_openai_key(api_key):
-    """Validate OpenAI API key by listing models"""
+    """Validate OpenAI API key and fetch available models"""
     url = "https://api.openai.com/v1/models"
     headers = {'Authorization': f'Bearer {api_key}'}
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
-            return {"valid": True, "models": OPENAI_MODELS}
+            data = json.loads(response.read().decode('utf-8'))
+            # Filter to chat models only
+            chat_models = []
+            for m in data.get('data', []):
+                mid = m.get('id', '')
+                if any(x in mid for x in ['gpt-4', 'gpt-3.5', 'o1', 'o3']):
+                    if 'instruct' not in mid and 'audio' not in mid and 'realtime' not in mid:
+                        chat_models.append({"id": mid, "name": mid})
+            # Sort and deduplicate, prioritize newer models
+            chat_models.sort(key=lambda x: x['id'], reverse=True)
+            # Add friendly names for common models
+            friendly = {
+                'gpt-4o': 'GPT-4o (Latest)',
+                'gpt-4o-mini': 'GPT-4o Mini (Fast)',
+                'gpt-4-turbo': 'GPT-4 Turbo',
+                'gpt-4': 'GPT-4',
+                'gpt-3.5-turbo': 'GPT-3.5 Turbo',
+                'o1': 'o1 (Reasoning)',
+                'o1-mini': 'o1 Mini',
+                'o1-preview': 'o1 Preview',
+            }
+            for m in chat_models:
+                if m['id'] in friendly:
+                    m['name'] = friendly[m['id']]
+            return {"valid": True, "models": chat_models[:15] if chat_models else OPENAI_MODELS}
     except urllib.error.HTTPError as e:
         if e.code == 401:
             return {"valid": False, "error": "Invalid API key"}
         return {"valid": False, "error": f"Error: {e.code}"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
+
+def validate_gemini_key_with_models(api_key):
+    """Validate Gemini API key and fetch available models"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    req = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            models = []
+            for m in data.get('models', []):
+                name = m.get('name', '').replace('models/', '')
+                display = m.get('displayName', name)
+                # Filter to generative models
+                if 'gemini' in name.lower():
+                    models.append({"id": name, "name": display})
+            models.sort(key=lambda x: x['name'], reverse=True)
+            return {"valid": True, "models": models[:10] if models else GEMINI_MODELS}
+    except urllib.error.HTTPError as e:
+        if e.code in [400, 401, 403]:
+            return {"valid": False, "error": "Invalid API key"}
+        return {"valid": False, "error": f"Error: {e.code}"}
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
+
+# AI Provider Call Functions
+def call_claude(api_key, model, prompt, max_tokens=1024):
+    """Call Claude API"""
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        'x-api-key': api_key,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+    }
+    data = json.dumps({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}]
+    }).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return {"success": True, "content": result.get('content', [{}])[0].get('text', '')}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else str(e)
+        return {"success": False, "error": f"Claude API error: {e.code} - {error_body}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def call_openai(api_key, model, prompt, max_tokens=1024):
+    """Call OpenAI API"""
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    data = json.dumps({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}]
+    }).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return {"success": True, "content": result.get('choices', [{}])[0].get('message', {}).get('content', '')}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else str(e)
+        return {"success": False, "error": f"OpenAI API error: {e.code} - {error_body}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def call_gemini(api_key, model, prompt, max_tokens=1024):
+    """Call Gemini API"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    headers = {'Content-Type': 'application/json'}
+    data = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens}
+    }).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            content = result.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+            return {"success": True, "content": content}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else str(e)
+        return {"success": False, "error": f"Gemini API error: {e.code} - {error_body}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 class handler(BaseHTTPRequestHandler):
     def _cors_headers(self):
@@ -277,6 +383,145 @@ class handler(BaseHTTPRequestHandler):
                         data[key] = body[key]
                 supabase_upsert('ai_settings', data)
             self._json_response(200, {"success": True})
+            return
+
+        # AI Generate Questions
+        if '/ai/generate-questions' in path:
+            user_id = self._get_user_id()
+            if not user_id:
+                self._json_response(401, {"error": "Please log in to use AI features"})
+                return
+
+            # Get user's AI settings
+            settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+            if not settings:
+                self._json_response(400, {"error": "Please configure AI settings first"})
+                return
+
+            s = settings[0]
+            provider = s.get('default_provider', 'claude')
+            api_key = s.get(f'{provider}_api_key')
+            model = s.get(f'{provider}_model')
+
+            if not api_key:
+                self._json_response(400, {"error": f"Please add your {provider.title()} API key in Settings"})
+                return
+
+            # Get the source question
+            question_id = body.get('question_id')
+            num_questions = body.get('num_questions', 3)
+
+            if not question_id:
+                self._json_response(400, {"error": "Missing question_id"})
+                return
+
+            # Fetch the original question
+            questions = supabase_get('questions', {'id': f'eq.{question_id}'})
+            if not questions:
+                self._json_response(404, {"error": "Question not found"})
+                return
+
+            original = questions[0]
+
+            # Build the prompt
+            prompt = f"""Generate {num_questions} similar IGCSE Geography exam questions based on this question:
+
+Original Question: {original.get('question_text', '')}
+Command Word: {original.get('command_word', '')}
+Marks: {original.get('marks', 2)}
+Topic: {original.get('topic_id', '')}
+
+Requirements:
+1. Use the same command word ({original.get('command_word', 'describe')})
+2. Target the same mark allocation ({original.get('marks', 2)} marks)
+3. Test similar concepts but with different scenarios/examples
+4. Follow IGCSE Geography exam style
+
+Return ONLY a JSON array with this format:
+[
+  {{"question_text": "...", "command_word": "{original.get('command_word', 'describe')}", "marks": {original.get('marks', 2)}, "mark_scheme": "..."}}
+]"""
+
+            # Call the appropriate AI provider
+            if provider == 'claude':
+                result = call_claude(api_key, model or 'claude-haiku-4-5-20251001', prompt)
+            elif provider == 'openai':
+                result = call_openai(api_key, model or 'gpt-4o-mini', prompt)
+            elif provider == 'gemini':
+                result = call_gemini(api_key, model or 'gemini-2.0-flash', prompt)
+            else:
+                self._json_response(400, {"error": f"Unknown provider: {provider}"})
+                return
+
+            if not result.get('success'):
+                self._json_response(500, {"error": result.get('error', 'AI generation failed')})
+                return
+
+            # Parse the AI response
+            content = result.get('content', '')
+            try:
+                # Extract JSON from response
+                json_match = re.search(r'\[[\s\S]*\]', content)
+                if json_match:
+                    generated = json.loads(json_match.group())
+                    # Add topic_id and save to database
+                    saved_questions = []
+                    for q in generated:
+                        q['topic_id'] = original.get('topic_id')
+                        q['ai_generated'] = True
+                        saved = supabase_upsert('questions', q)
+                        if saved and not saved.get('error'):
+                            saved_questions.append(saved[0] if isinstance(saved, list) else saved)
+
+                    self._json_response(200, {"questions": saved_questions, "generated": len(saved_questions)})
+                    return
+                else:
+                    self._json_response(500, {"error": "Could not parse AI response"})
+                    return
+            except json.JSONDecodeError as e:
+                self._json_response(500, {"error": f"Invalid JSON from AI: {str(e)}"})
+                return
+
+        # AI Chat (general)
+        if '/ai/chat' in path:
+            user_id = self._get_user_id()
+            if not user_id:
+                self._json_response(401, {"error": "Please log in to use AI features"})
+                return
+
+            settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+            if not settings:
+                self._json_response(400, {"error": "Please configure AI settings first"})
+                return
+
+            s = settings[0]
+            provider = s.get('default_provider', 'claude')
+            api_key = s.get(f'{provider}_api_key')
+            model = s.get(f'{provider}_model')
+
+            if not api_key:
+                self._json_response(400, {"error": f"Please add your {provider.title()} API key in Settings"})
+                return
+
+            prompt = body.get('message', '')
+            if not prompt:
+                self._json_response(400, {"error": "Missing message"})
+                return
+
+            if provider == 'claude':
+                result = call_claude(api_key, model or 'claude-haiku-4-5-20251001', prompt)
+            elif provider == 'openai':
+                result = call_openai(api_key, model or 'gpt-4o-mini', prompt)
+            elif provider == 'gemini':
+                result = call_gemini(api_key, model or 'gemini-2.0-flash', prompt)
+            else:
+                self._json_response(400, {"error": f"Unknown provider: {provider}"})
+                return
+
+            if result.get('success'):
+                self._json_response(200, {"response": result.get('content', '')})
+            else:
+                self._json_response(500, {"error": result.get('error', 'AI request failed')})
             return
 
         self._json_response(200, {"success": True})
