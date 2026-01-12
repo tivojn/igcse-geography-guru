@@ -1,0 +1,2333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IGCSE Geography Guru</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .flip-card { perspective: 1000px; }
+        .flip-card-inner { transition: transform 0.6s; transform-style: preserve-3d; }
+        .flip-card.flipped .flip-card-inner { transform: rotateY(180deg); }
+        .flip-card-front, .flip-card-back { backface-visibility: hidden; }
+        .flip-card-back { transform: rotateY(180deg); }
+
+        /* Typing animations */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-60px) scale(1.2); }
+        }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(34, 197, 94, 0.5); }
+            50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.8); }
+        }
+        @keyframes caret-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
+        .animate-float-up { animation: floatUp 1s ease-out forwards; }
+        .animate-pulse-glow { animation: pulse-glow 1.5s ease-in-out infinite; }
+        .caret-blink { animation: caret-blink 1s step-end infinite; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useContext, createContext, useRef, useCallback } = React;
+
+        // API Base URL
+        const API_URL = '/api';
+
+        // Auth Context
+        const AuthContext = createContext(null);
+
+        // Typing Settings Context
+        const TypingSettingsContext = createContext({
+            enabled: true,
+            memoryDuration: 5,
+            stuckTimeout: 2,
+            soundEnabled: true,
+            ttsEnabled: true
+        });
+
+        // ============================================
+        // AUDIO ENGINE - Synthesized sounds (no external assets)
+        // ============================================
+        class AudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.gainNode = null;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    this.gainNode = this.ctx.createGain();
+                    this.gainNode.connect(this.ctx.destination);
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            playKeyClick() {
+                this.init();
+                if (!this.ctx || !this.gainNode) return;
+
+                const t = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'triangle';
+                const baseFreq = 800 + Math.random() * 100;
+                osc.frequency.setValueAtTime(baseFreq, t);
+                osc.frequency.exponentialRampToValueAtTime(baseFreq / 2, t + 0.03);
+
+                gain.gain.setValueAtTime(0.12, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+
+                osc.connect(gain);
+                gain.connect(this.gainNode);
+                osc.start(t);
+                osc.stop(t + 0.05);
+            }
+
+            playError() {
+                this.init();
+                if (!this.ctx || !this.gainNode) return;
+
+                const t = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(120, t);
+                osc.frequency.linearRampToValueAtTime(80, t + 0.1);
+
+                gain.gain.setValueAtTime(0.08, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+
+                osc.connect(gain);
+                gain.connect(this.gainNode);
+                osc.start(t);
+                osc.stop(t + 0.15);
+            }
+
+            playSuccessDing() {
+                this.init();
+                if (!this.ctx || !this.gainNode) return;
+
+                const t = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, t);
+                osc.frequency.setValueAtTime(1046.50, t + 0.1);
+
+                gain.gain.setValueAtTime(0.15, t);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.8);
+
+                osc.connect(gain);
+                gain.connect(this.gainNode);
+                osc.start(t);
+                osc.stop(t + 0.8);
+            }
+
+            playPowerDing() {
+                this.init();
+                if (!this.ctx || !this.gainNode) return;
+
+                const t = this.ctx.currentTime;
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc1.type = 'sine';
+                osc2.type = 'triangle';
+
+                osc1.frequency.setValueAtTime(880, t);
+                osc1.frequency.linearRampToValueAtTime(1760, t + 0.1);
+                osc2.frequency.setValueAtTime(1108, t);
+                osc2.frequency.linearRampToValueAtTime(2217, t + 0.1);
+
+                gain.gain.setValueAtTime(0.1, t);
+                gain.gain.exponentialRampToValueAtTime(0.0001, t + 1);
+
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(this.gainNode);
+
+                osc1.start(t);
+                osc2.start(t);
+                osc1.stop(t + 1);
+                osc2.stop(t + 1);
+            }
+
+            playVictory() {
+                this.init();
+                if (!this.ctx || !this.gainNode) return;
+
+                const t = this.ctx.currentTime;
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+
+                notes.forEach((freq, i) => {
+                    const osc = this.ctx.createOscillator();
+                    const noteGain = this.ctx.createGain();
+
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(freq, t + i * 0.1);
+
+                    noteGain.gain.setValueAtTime(0, t + i * 0.1);
+                    noteGain.gain.linearRampToValueAtTime(0.08, t + i * 0.1 + 0.05);
+                    noteGain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.1 + 0.4);
+
+                    osc.connect(noteGain);
+                    noteGain.connect(this.gainNode);
+
+                    osc.start(t + i * 0.1);
+                    osc.stop(t + i * 0.1 + 0.5);
+                });
+            }
+
+            speak(text) {
+                if (!('speechSynthesis' in window)) return;
+                window.speechSynthesis.cancel();
+
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 0.9;
+                utterance.pitch = 1.0;
+                utterance.volume = 0.8;
+
+                const voices = window.speechSynthesis.getVoices();
+                const preferredVoice = voices.find(v =>
+                    (v.name.includes('Google') || v.name.includes('Premium') || v.name.includes('Daniel') || v.name.includes('Samantha'))
+                    && v.lang.startsWith('en')
+                );
+                if (preferredVoice) utterance.voice = preferredVoice;
+
+                window.speechSynthesis.speak(utterance);
+            }
+
+            cancelSpeech() {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                }
+            }
+        }
+
+        const audioEngine = new AudioEngine();
+
+        // Encouragement phrases
+        const ENCOURAGEMENT_PHRASES = [
+            "NAILED IT!", "GEOGRAPHY MASTER!", "BRILLIANT!",
+            "EXAM READY!", "LOCKED IN!", "WORD PERFECT!",
+            "DEFINITION CRUSHED!", "STELLAR!", "TOP MARKS!"
+        ];
+
+        // ============================================
+        // TYPING PRACTICE COMPONENT
+        // ============================================
+        function TypingPractice({
+            text,
+            onComplete,
+            onCancel,
+            settings = {},
+            label = "Definition"
+        }) {
+            const {
+                memoryDuration = 5,
+                stuckTimeout = 2,
+                soundEnabled = true,
+                ttsEnabled = true
+            } = settings;
+
+            const [input, setInput] = useState('');
+            const [isTextVisible, setIsTextVisible] = useState(true);
+            const [timeLeft, setTimeLeft] = useState(memoryDuration);
+            const [hintEndIndex, setHintEndIndex] = useState(-1);
+            const [floatingTexts, setFloatingTexts] = useState([]);
+            const [isComplete, setIsComplete] = useState(false);
+
+            const inputRef = useRef(null);
+            const cursorRef = useRef(null);
+
+            // TTS on mount
+            useEffect(() => {
+                if (ttsEnabled && text) {
+                    setTimeout(() => audioEngine.speak(text), 300);
+                }
+                return () => audioEngine.cancelSpeech();
+            }, [text, ttsEnabled]);
+
+            // Countdown timer
+            useEffect(() => {
+                if (!isTextVisible || isComplete) return;
+
+                const interval = setInterval(() => {
+                    setTimeLeft(prev => {
+                        if (prev <= 1) {
+                            setIsTextVisible(false);
+                            return 0;
+                        }
+                        return prev - 1;
+                    });
+                }, 1000);
+
+                return () => clearInterval(interval);
+            }, [isTextVisible, isComplete]);
+
+            // Stuck detection - reveal hint
+            useEffect(() => {
+                if (isComplete || input.length >= text.length) return;
+
+                // Reset hint if user progressed past it
+                if (hintEndIndex !== -1 && input.length >= hintEndIndex) {
+                    setHintEndIndex(-1);
+                }
+
+                const timer = setTimeout(() => {
+                    const spaceIndex = text.indexOf(' ', input.length);
+                    const nextWordEnd = spaceIndex === -1 ? text.length : spaceIndex + 1;
+                    setHintEndIndex(nextWordEnd);
+                }, stuckTimeout * 1000);
+
+                return () => clearTimeout(timer);
+            }, [input, text, stuckTimeout, hintEndIndex, isComplete]);
+
+            // Focus management
+            useEffect(() => {
+                inputRef.current?.focus();
+                const interval = setInterval(() => {
+                    if (inputRef.current && document.activeElement !== inputRef.current && !isComplete) {
+                        inputRef.current.focus();
+                    }
+                }, 500);
+                return () => clearInterval(interval);
+            }, [isComplete]);
+
+            const triggerFloatingText = (text) => {
+                const id = Date.now();
+                setFloatingTexts(prev => [...prev, { id, text }]);
+                setTimeout(() => {
+                    setFloatingTexts(prev => prev.filter(ft => ft.id !== id));
+                }, 1000);
+            };
+
+            const handleInputChange = (e) => {
+                const val = e.target.value;
+                const isAdding = val.length > input.length;
+
+                // Hide text on first keystroke
+                if (isTextVisible && val.length > 0) {
+                    setIsTextVisible(false);
+                }
+
+                if (isAdding) {
+                    const charIndex = val.length - 1;
+                    const expectedChar = text[charIndex];
+                    const typedChar = val[charIndex];
+
+                    if (expectedChar === typedChar) {
+                        if (soundEnabled) audioEngine.playKeyClick();
+                    } else {
+                        if (soundEnabled) audioEngine.playError();
+                    }
+                }
+
+                setInput(val);
+
+                // Check completion
+                if (val === text) {
+                    setIsComplete(true);
+                    if (soundEnabled) audioEngine.playSuccessDing();
+
+                    triggerFloatingText(ENCOURAGEMENT_PHRASES[Math.floor(Math.random() * ENCOURAGEMENT_PHRASES.length)]);
+
+                    // Fire confetti
+                    confetti({
+                        particleCount: 100,
+                        spread: 70,
+                        origin: { y: 0.7 },
+                        colors: ['#22c55e', '#3b82f6', '#f59e0b', '#ec4899']
+                    });
+
+                    setTimeout(() => onComplete && onComplete(), 1500);
+                }
+            };
+
+            const handleReshow = () => {
+                setIsTextVisible(true);
+                setTimeLeft(memoryDuration);
+                inputRef.current?.focus();
+            };
+
+            const renderText = () => {
+                return text.split('').map((char, index) => {
+                    const typedChar = input[index];
+                    let className = "transition-all duration-200 ";
+
+                    if (typedChar == null) {
+                        // Untyped
+                        const isHint = index < hintEndIndex;
+                        if (!isTextVisible && !isHint) {
+                            className += "opacity-0 blur-sm text-gray-400 select-none";
+                        } else if (isHint) {
+                            className += "text-yellow-500 opacity-100 animate-pulse";
+                        } else {
+                            className += "text-gray-400 opacity-60";
+                        }
+                    } else if (typedChar === char) {
+                        className += "text-green-500 font-medium";
+                    } else {
+                        className += "text-red-500 bg-red-100 rounded";
+                    }
+
+                    const isCursor = index === input.length;
+
+                    return (
+                        <span key={index} ref={isCursor ? cursorRef : null} className={`relative ${className}`}>
+                            {isCursor && (
+                                <span className="absolute -left-px top-0 w-0.5 h-full bg-green-500 caret-blink" />
+                            )}
+                            {char}
+                        </span>
+                    );
+                });
+            };
+
+            return (
+                <div className="relative">
+                    {/* Floating encouragement texts */}
+                    {floatingTexts.map(ft => (
+                        <div
+                            key={ft.id}
+                            className="absolute left-1/2 -translate-x-1/2 top-0 z-50 pointer-events-none animate-float-up"
+                        >
+                            <span className="text-2xl font-bold bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent">
+                                {ft.text}
+                            </span>
+                        </div>
+                    ))}
+
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                            <span className="text-2xl">⌨️</span>
+                            <span className="font-semibold text-gray-700">Type to Memorize</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            {isTextVisible && !isComplete && (
+                                <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded-full text-gray-600">
+                                    ⏱️ {timeLeft}s
+                                </span>
+                            )}
+                            {!isTextVisible && !isComplete && (
+                                <button
+                                    onClick={handleReshow}
+                                    className="text-sm bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full hover:bg-yellow-200 transition flex items-center gap-1"
+                                >
+                                    👁️ Peek
+                                </button>
+                            )}
+                            <button
+                                onClick={onCancel}
+                                className="text-gray-400 hover:text-gray-600 transition"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Label */}
+                    <div className="text-xs uppercase tracking-wider text-gray-400 mb-2">{label}</div>
+
+                    {/* Typing area */}
+                    <div
+                        className={`relative bg-gray-50 rounded-xl p-6 border-2 transition-all cursor-text ${
+                            isComplete ? 'border-green-500 animate-pulse-glow' : 'border-gray-200'
+                        }`}
+                        onClick={() => inputRef.current?.focus()}
+                    >
+                        <div className="text-lg leading-relaxed font-serif min-h-[60px]">
+                            {renderText()}
+                            {input.length === text.length && !isComplete && (
+                                <span className="inline-block w-0.5 h-5 bg-green-500 caret-blink align-middle ml-0.5" />
+                            )}
+                        </div>
+
+                        {/* Hidden input */}
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={input}
+                            onChange={handleInputChange}
+                            className="absolute inset-0 opacity-0 cursor-text"
+                            autoFocus
+                            spellCheck={false}
+                            autoComplete="off"
+                            disabled={isComplete}
+                        />
+                    </div>
+
+                    {/* Progress bar */}
+                    <div className="mt-4 flex items-center gap-3">
+                        <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
+                            <div
+                                className="bg-gradient-to-r from-green-400 to-green-600 h-full transition-all duration-150"
+                                style={{ width: `${(input.length / text.length) * 100}%` }}
+                            />
+                        </div>
+                        <span className="text-sm text-gray-500 font-mono">
+                            {input.length}/{text.length}
+                        </span>
+                    </div>
+
+                    {/* Completion message */}
+                    {isComplete && (
+                        <div className="mt-4 text-center animate-fade-in-up">
+                            <span className="text-green-600 font-semibold">✅ Perfect! Definition memorized!</span>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // API Helper
+        const api = {
+            token: localStorage.getItem('token'),
+
+            async request(endpoint, options = {}) {
+                const headers = { 'Content-Type': 'application/json' };
+                if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+
+                const response = await fetch(`${API_URL}${endpoint}`, {
+                    ...options,
+                    headers: { ...headers, ...options.headers }
+                });
+
+                if (response.status === 401) {
+                    this.token = null;
+                    localStorage.removeItem('token');
+                    window.location.reload();
+                    return null;
+                }
+
+                return response.json();
+            },
+
+            get: (endpoint) => api.request(endpoint),
+            post: (endpoint, data) => api.request(endpoint, { method: 'POST', body: JSON.stringify(data) }),
+            put: (endpoint, data) => api.request(endpoint, { method: 'PUT', body: JSON.stringify(data) })
+        };
+
+        // Login Component
+        function Login({ onLogin }) {
+            const [username, setUsername] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError('');
+
+                const result = await api.post('/auth/login', { username, password });
+
+                if (result?.token) {
+                    api.token = result.token;
+                    localStorage.setItem('token', result.token);
+                    onLogin(result.user);
+                } else {
+                    setError('Invalid username or password');
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-400 to-blue-500">
+                    <div className="bg-white p-8 rounded-2xl shadow-2xl w-96">
+                        <div className="text-center mb-6">
+                            <div className="text-6xl mb-4">🌍</div>
+                            <h1 className="text-2xl font-bold text-gray-800">Geography Guru</h1>
+                            <p className="text-gray-500">IGCSE 0460 Study Companion</p>
+                        </div>
+
+                        <form onSubmit={handleSubmit}>
+                            <input
+                                type="text"
+                                placeholder="Username"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                className="w-full p-3 border rounded-lg mb-3 focus:ring-2 focus:ring-green-500 focus:outline-none"
+                            />
+                            <input
+                                type="password"
+                                placeholder="Password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full p-3 border rounded-lg mb-4 focus:ring-2 focus:ring-green-500 focus:outline-none"
+                            />
+
+                            {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-green-500 text-white py-3 rounded-lg font-semibold hover:bg-green-600 transition disabled:opacity-50"
+                            >
+                                {loading ? 'Signing in...' : 'Sign In'}
+                            </button>
+                        </form>
+
+                        <p className="text-center text-gray-400 text-sm mt-4">Default: gary / 1234</p>
+                    </div>
+                </div>
+            );
+        }
+
+        // Navigation Component
+        function Navigation({ user, currentView, setCurrentView, onLogout }) {
+            const navItems = [
+                { id: 'topics', label: 'Topics', icon: '📚' },
+                { id: 'progress', label: 'Progress', icon: '📊' },
+                { id: 'weak-points', label: 'Weak Points', icon: '🎯' },
+                { id: 'settings', label: 'Settings', icon: '⚙️' }
+            ];
+
+            return (
+                <nav className="bg-white shadow-lg">
+                    <div className="max-w-7xl mx-auto px-4">
+                        <div className="flex justify-between items-center py-4">
+                            <div className="flex items-center space-x-2">
+                                <span className="text-3xl">🌍</span>
+                                <span className="text-xl font-bold text-gray-800">Geography Guru</span>
+                            </div>
+
+                            <div className="flex items-center space-x-4">
+                                {navItems.map(item => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => setCurrentView(item.id)}
+                                        className={`flex items-center space-x-1 px-4 py-2 rounded-lg transition
+                                            ${currentView === item.id
+                                                ? 'bg-green-500 text-white'
+                                                : 'text-gray-600 hover:bg-gray-100'}`}
+                                    >
+                                        <span>{item.icon}</span>
+                                        <span>{item.label}</span>
+                                    </button>
+                                ))}
+
+                                <div className="border-l pl-4 ml-4">
+                                    <span className="text-gray-600">👤 {user.display_name}</span>
+                                    <button
+                                        onClick={onLogout}
+                                        className="ml-3 text-red-500 hover:text-red-700"
+                                    >
+                                        Logout
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+            );
+        }
+
+        // Topics List Component
+        function TopicsList({ onSelectTopic }) {
+            const [themes, setThemes] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                api.get('/topics').then(data => {
+                    setThemes(data || []);
+                    setLoading(false);
+                });
+            }, []);
+
+            if (loading) return <div className="text-center py-8">Loading topics...</div>;
+
+            const themeColors = {
+                1: 'from-purple-500 to-pink-500',
+                2: 'from-green-500 to-teal-500',
+                3: 'from-orange-500 to-red-500',
+                4: 'from-blue-500 to-indigo-500'
+            };
+
+            return (
+                <div className="max-w-6xl mx-auto p-6">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-6">📚 Select a Topic</h2>
+
+                    <div className="grid gap-6">
+                        {themes.map(theme => (
+                            <div key={theme.theme_number} className="bg-white rounded-xl shadow-lg overflow-hidden">
+                                <div className={`bg-gradient-to-r ${themeColors[theme.theme_number]} p-4`}>
+                                    <h3 className="text-white text-xl font-bold">
+                                        Theme {theme.theme_number}: {theme.theme_name}
+                                    </h3>
+                                </div>
+
+                                <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {theme.topics.map(topic => (
+                                        <button
+                                            key={topic.id}
+                                            onClick={() => onSelectTopic(topic)}
+                                            className="p-4 border rounded-lg text-left hover:bg-gray-50 hover:border-green-500 transition group"
+                                        >
+                                            <span className="font-semibold text-green-600 group-hover:text-green-700">
+                                                {topic.topic_number}
+                                            </span>
+                                            <span className="text-gray-700 ml-2">{topic.topic_name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // Topic Detail Component
+        function TopicDetail({ topic, onBack, typingSettings }) {
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [activeTab, setActiveTab] = useState('learn');
+            const [startIndex, setStartIndex] = useState(0);
+
+            useEffect(() => {
+                api.get(`/topics/${topic.id}`).then(result => {
+                    setData(result);
+                    setLoading(false);
+                });
+            }, [topic.id]);
+
+            // Navigation helper to jump to a specific item in a tab
+            const navigateTo = (tabId, index = 0) => {
+                setStartIndex(index);
+                setActiveTab(tabId);
+            };
+
+            if (loading) return <div className="text-center py-8">Loading...</div>;
+
+            const tabs = [
+                { id: 'learn', label: 'Learn', icon: '📖' },
+                { id: 'flashcards', label: 'Flashcards', icon: '🃏' },
+                { id: 'test-yourself', label: 'Test Yourself', icon: '✅' },
+                { id: 'quiz', label: 'Quiz', icon: '✏️' }
+            ];
+
+            return (
+                <div className="max-w-6xl mx-auto p-6">
+                    <button
+                        onClick={onBack}
+                        className="mb-4 text-green-600 hover:text-green-800 flex items-center"
+                    >
+                        ← Back to Topics
+                    </button>
+
+                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div className="bg-gradient-to-r from-green-500 to-teal-500 p-6">
+                            <h2 className="text-white text-2xl font-bold">
+                                {topic.topic_number} {topic.topic_name}
+                            </h2>
+                        </div>
+
+                        <div className="border-b">
+                            <div className="flex">
+                                {tabs.map(tab => (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => { setStartIndex(0); setActiveTab(tab.id); }}
+                                        className={`px-6 py-4 flex items-center space-x-2 font-medium transition
+                                            ${activeTab === tab.id
+                                                ? 'border-b-2 border-green-500 text-green-600'
+                                                : 'text-gray-500 hover:text-gray-700'}`}
+                                    >
+                                        <span>{tab.icon}</span>
+                                        <span>{tab.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="p-6">
+                            {activeTab === 'learn' && <LearnTab data={data} onNavigate={navigateTo} />}
+                            {activeTab === 'flashcards' && <FlashcardsTab definitions={data?.definitions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
+                            {activeTab === 'test-yourself' && <TestYourselfTab topicCode={topic.topic_number} topicName={topic.topic_name} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
+                            {activeTab === 'quiz' && <QuizTab questions={data?.questions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Learn Tab Component
+        function LearnTab({ data, onNavigate }) {
+            const content = data?.content || {};
+
+            return (
+                <div className="space-y-6">
+                    <section>
+                        <h3 className="text-xl font-bold text-gray-800 mb-4">📝 Key Definitions</h3>
+                        <div className="grid gap-3">
+                            {data?.definitions?.map((def, i) => (
+                                <div key={i} className="bg-gray-50 p-4 rounded-lg">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                            <span className="font-semibold text-green-600">{def.term}:</span>
+                                            <span className="ml-2 text-gray-700">{def.definition}</span>
+                                            {def.textbook_page && (
+                                                <span className="ml-2 text-gray-400 text-sm">(p.{def.textbook_page})</span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-1 ml-3 flex-shrink-0">
+                                            <button
+                                                onClick={() => onNavigate('flashcards', i)}
+                                                className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition"
+                                                title="Practice with Flashcard"
+                                            >
+                                                🃏
+                                            </button>
+                                            <button
+                                                onClick={() => onNavigate('test-yourself', i)}
+                                                className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 transition"
+                                                title="Test Yourself"
+                                            >
+                                                ✅
+                                            </button>
+                                            <button
+                                                onClick={() => onNavigate('quiz', i)}
+                                                className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition"
+                                                title="Take Quiz"
+                                            >
+                                                ✏️
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    {content.tips?.length > 0 && (
+                        <section>
+                            <h3 className="text-xl font-bold text-gray-800 mb-4">💡 Exam Tips</h3>
+                            <ul className="list-disc list-inside space-y-2">
+                                {content.tips.map((tip, i) => (
+                                    <li key={i} className="text-gray-700">{tip}</li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+
+                    {content.common_errors?.length > 0 && (
+                        <section>
+                            <h3 className="text-xl font-bold text-gray-800 mb-4">⚠️ Common Errors</h3>
+                            <ul className="list-disc list-inside space-y-2">
+                                {content.common_errors.map((error, i) => (
+                                    <li key={i} className="text-red-600">{error}</li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                </div>
+            );
+        }
+
+        // Flashcards Tab Component - ENHANCED with Type to Learn
+        function FlashcardsTab({ definitions, topicId, typingSettings, startIndex = 0, onStartIndexUsed }) {
+            const [currentIndex, setCurrentIndex] = useState(startIndex);
+            const [flipped, setFlipped] = useState(false);
+            const [stats, setStats] = useState({ knew: 0, didnt: 0 });
+            const [mode, setMode] = useState('flip'); // 'flip' or 'type'
+            const [isTyping, setIsTyping] = useState(false);
+
+            // Handle startIndex from navigation
+            useEffect(() => {
+                if (startIndex > 0 && startIndex < definitions.length) {
+                    setCurrentIndex(startIndex);
+                    setFlipped(false);
+                    setIsTyping(false);
+                    if (onStartIndexUsed) onStartIndexUsed();
+                }
+            }, [startIndex, definitions.length, onStartIndexUsed]);
+
+            const current = definitions[currentIndex];
+
+            // Navigation functions
+            const goToNext = () => {
+                if (currentIndex < definitions.length - 1) {
+                    setCurrentIndex(currentIndex + 1);
+                    setFlipped(false);
+                    setIsTyping(false);
+                }
+            };
+
+            const goToPrevious = () => {
+                if (currentIndex > 0) {
+                    setCurrentIndex(currentIndex - 1);
+                    setFlipped(false);
+                    setIsTyping(false);
+                }
+            };
+
+            const handleResponse = async (knewIt) => {
+                await api.post(`/flashcards/${current.id}/attempt`, { knew_it: knewIt });
+
+                setStats(prev => ({
+                    knew: knewIt ? prev.knew + 1 : prev.knew,
+                    didnt: !knewIt ? prev.didnt + 1 : prev.didnt
+                }));
+
+                setFlipped(false);
+                setIsTyping(false);
+                if (currentIndex < definitions.length - 1) {
+                    setTimeout(() => setCurrentIndex(currentIndex + 1), 300);
+                }
+            };
+
+            const handleTypeComplete = () => {
+                // Auto-mark as knew it if typed correctly
+                handleResponse(true);
+            };
+
+            const startTyping = () => {
+                setIsTyping(true);
+            };
+
+            if (!definitions.length) {
+                return <div className="text-center py-8 text-gray-500">No flashcards available for this topic.</div>;
+            }
+
+            if (currentIndex >= definitions.length) {
+                const percentage = Math.round((stats.knew / (stats.knew + stats.didnt)) * 100);
+                return (
+                    <div className="text-center py-8">
+                        <div className="text-6xl mb-4">🎉</div>
+                        <h3 className="text-2xl font-bold text-gray-800 mb-2">All done!</h3>
+                        <p className="text-gray-600 mb-4">
+                            You knew {stats.knew} out of {stats.knew + stats.didnt} definitions ({percentage}%)
+                        </p>
+                        <button
+                            onClick={() => { setCurrentIndex(0); setStats({ knew: 0, didnt: 0 }); setIsTyping(false); }}
+                            className="bg-green-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-600"
+                        >
+                            Start Again
+                        </button>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex flex-col items-center">
+                    {/* Mode Toggle */}
+                    <div className="mb-4 flex items-center gap-2 bg-gray-100 p-1 rounded-full">
+                        <button
+                            onClick={() => { setMode('flip'); setIsTyping(false); setFlipped(false); }}
+                            className={`px-4 py-2 rounded-full text-sm font-medium transition ${
+                                mode === 'flip' ? 'bg-white shadow text-green-600' : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            🃏 Flip Mode
+                        </button>
+                        <button
+                            onClick={() => { setMode('type'); setFlipped(false); }}
+                            className={`px-4 py-2 rounded-full text-sm font-medium transition ${
+                                mode === 'type' ? 'bg-white shadow text-green-600' : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            ⌨️ Type Mode
+                        </button>
+                    </div>
+
+                    {/* Navigation Controls */}
+                    <div className="mb-4 flex items-center gap-4">
+                        <button
+                            onClick={goToPrevious}
+                            disabled={currentIndex === 0}
+                            className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        >
+                            ← Prev
+                        </button>
+                        <span className="text-gray-500">
+                            Card {currentIndex + 1} of {definitions.length}
+                        </span>
+                        <button
+                            onClick={goToNext}
+                            disabled={currentIndex >= definitions.length - 1}
+                            className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        >
+                            Next →
+                        </button>
+                    </div>
+
+                    {mode === 'flip' ? (
+                        <>
+                            <div
+                                className={`flip-card w-full max-w-lg h-64 cursor-pointer ${flipped ? 'flipped' : ''}`}
+                                onClick={() => setFlipped(!flipped)}
+                            >
+                                <div className="flip-card-inner relative w-full h-full">
+                                    <div className="flip-card-front absolute w-full h-full bg-gradient-to-br from-green-400 to-teal-500 rounded-xl flex items-center justify-center p-8">
+                                        <h3 className="text-white text-2xl font-bold text-center">{current.term}</h3>
+                                    </div>
+                                    <div className="flip-card-back absolute w-full h-full bg-white border-2 border-green-500 rounded-xl flex items-center justify-center p-8">
+                                        <p className="text-gray-700 text-lg text-center">{current.definition}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p className="text-gray-400 text-sm mt-4 mb-6">Click to flip</p>
+
+                            <div className="flex space-x-4">
+                                <button
+                                    onClick={() => handleResponse(false)}
+                                    className="bg-red-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-600 transition"
+                                >
+                                    ❌ Didn't Know
+                                </button>
+                                <button
+                                    onClick={() => handleResponse(true)}
+                                    className="bg-green-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-600 transition"
+                                >
+                                    ✅ Knew It!
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="w-full max-w-lg">
+                            {/* Term card */}
+                            <div className="bg-gradient-to-br from-green-400 to-teal-500 rounded-xl p-6 mb-6">
+                                <h3 className="text-white text-2xl font-bold text-center">{current.term}</h3>
+                            </div>
+
+                            {!isTyping ? (
+                                <div className="text-center">
+                                    <p className="text-gray-600 mb-4">
+                                        Read the definition, then type it from memory to reinforce learning
+                                    </p>
+
+                                    {/* Show definition preview */}
+                                    <div className="bg-gray-50 rounded-xl p-6 mb-6 text-left">
+                                        <p className="text-gray-700 text-lg">{current.definition}</p>
+                                    </div>
+
+                                    <button
+                                        onClick={startTyping}
+                                        className="bg-green-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-600 transition flex items-center gap-2 mx-auto"
+                                    >
+                                        ⌨️ Type to Memorize
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleResponse(true)}
+                                        className="mt-3 text-gray-500 hover:text-gray-700 text-sm"
+                                    >
+                                        Skip (I already know this)
+                                    </button>
+                                </div>
+                            ) : (
+                                <TypingPractice
+                                    text={current.definition}
+                                    onComplete={handleTypeComplete}
+                                    onCancel={() => setIsTyping(false)}
+                                    settings={typingSettings}
+                                    label={`Definition of "${current.term}"`}
+                                />
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Test Yourself Tab Component (Study Guide Questions p.125-127) - ENHANCED
+        function TestYourselfTab({ topicCode, topicName, typingSettings, startIndex = 0, onStartIndexUsed }) {
+            const [questions, setQuestions] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [revealedAnswers, setRevealedAnswers] = useState({});
+            const [userScores, setUserScores] = useState({});
+            const [completed, setCompleted] = useState(false);
+            const [typingIndex, setTypingIndex] = useState(null);
+            const [focusedIndex, setFocusedIndex] = useState(null); // For single-question view
+            const questionRefs = React.useRef([]);
+
+            useEffect(() => {
+                api.get(`/topics/${topicCode}/test-yourself`).then(data => {
+                    setQuestions(data || []);
+                    setLoading(false);
+                });
+            }, [topicCode]);
+
+            // Handle startIndex from navigation - focus on that question
+            useEffect(() => {
+                if (startIndex > 0 && questions.length > 0 && startIndex < questions.length) {
+                    setFocusedIndex(startIndex);
+                    if (onStartIndexUsed) onStartIndexUsed();
+                }
+            }, [startIndex, questions.length, onStartIndexUsed]);
+
+            // Navigation for focused view
+            const goToNext = () => {
+                if (focusedIndex !== null && focusedIndex < questions.length - 1) {
+                    setFocusedIndex(focusedIndex + 1);
+                    setTypingIndex(null);
+                }
+            };
+
+            const goToPrevious = () => {
+                if (focusedIndex !== null && focusedIndex > 0) {
+                    setFocusedIndex(focusedIndex - 1);
+                    setTypingIndex(null);
+                }
+            };
+
+            const exitFocusMode = () => {
+                setFocusedIndex(null);
+                setTypingIndex(null);
+            };
+
+            const toggleAnswer = (index) => {
+                setRevealedAnswers(prev => ({
+                    ...prev,
+                    [index]: !prev[index]
+                }));
+            };
+
+            const markScore = async (index, knewIt) => {
+                setUserScores(prev => ({
+                    ...prev,
+                    [index]: knewIt
+                }));
+                setTypingIndex(null);
+
+                await api.post(`/test-yourself/${topicCode}/attempt`, {
+                    question_number: index + 1,
+                    knew_it: knewIt
+                });
+
+                const newScores = { ...userScores, [index]: knewIt };
+                if (Object.keys(newScores).length === questions.length) {
+                    setCompleted(true);
+                }
+            };
+
+            const startTyping = (index) => {
+                setTypingIndex(index);
+            };
+
+            const handleTypingComplete = (index) => {
+                markScore(index, true);
+            };
+
+            const resetQuiz = () => {
+                setRevealedAnswers({});
+                setUserScores({});
+                setCompleted(false);
+                setTypingIndex(null);
+            };
+
+            if (loading) {
+                return <div className="text-center py-8">Loading Test Yourself questions...</div>;
+            }
+
+            if (!questions.length) {
+                return (
+                    <div className="text-center py-8">
+                        <div className="text-6xl mb-4">📝</div>
+                        <p className="text-gray-500">No Test Yourself questions available for this topic yet.</p>
+                    </div>
+                );
+            }
+
+            const totalScore = Object.values(userScores).filter(v => v === true).length;
+            const totalAnswered = Object.keys(userScores).length;
+
+            if (completed) {
+                const percentage = Math.round(totalScore / questions.length * 100);
+                return (
+                    <div className="text-center py-8">
+                        <div className="text-6xl mb-4">{percentage >= 70 ? '🌟' : percentage >= 50 ? '👍' : '📚'}</div>
+                        <h3 className="text-2xl font-bold text-gray-800 mb-2">Test Yourself Complete!</h3>
+                        <p className="text-xl text-gray-600 mb-4">
+                            You knew {totalScore} out of {questions.length} answers ({percentage}%)
+                        </p>
+                        <p className="text-gray-500 mb-6">
+                            {percentage >= 70 ? 'Excellent work! You have a strong understanding.' :
+                             percentage >= 50 ? 'Good effort! Review the answers you missed.' :
+                             'Keep studying! Review the definitions and try again.'}
+                        </p>
+                        <button
+                            onClick={resetQuiz}
+                            className="bg-green-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-600"
+                        >
+                            Try Again
+                        </button>
+                    </div>
+                );
+            }
+
+            // Focused single-question view with navigation
+            if (focusedIndex !== null && questions[focusedIndex]) {
+                const q = questions[focusedIndex];
+                const index = focusedIndex;
+                return (
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <button
+                                onClick={exitFocusMode}
+                                className="text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                            >
+                                ← Back to All Questions
+                            </button>
+                        </div>
+
+                        {/* Navigation Controls */}
+                        <div className="flex items-center justify-center gap-4">
+                            <button
+                                onClick={goToPrevious}
+                                disabled={focusedIndex === 0}
+                                className="px-4 py-2 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            >
+                                ← Previous
+                            </button>
+                            <span className="text-gray-500 font-medium">
+                                Question {focusedIndex + 1} of {questions.length}
+                            </span>
+                            <button
+                                onClick={goToNext}
+                                disabled={focusedIndex >= questions.length - 1}
+                                className="px-4 py-2 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            >
+                                Next →
+                            </button>
+                        </div>
+
+                        {/* Single Question Card */}
+                        <div className={`border-2 rounded-xl overflow-hidden ${
+                            userScores[index] !== undefined
+                                ? (userScores[index] ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50')
+                                : 'border-gray-300'
+                        }`}>
+                            <div className="p-6">
+                                <div className="flex items-start space-x-4">
+                                    <span className="flex-shrink-0 w-12 h-12 bg-green-500 text-white rounded-full flex items-center justify-center font-bold text-xl">
+                                        {q.number}
+                                    </span>
+                                    <div className="flex-grow">
+                                        <p className="text-gray-800 font-medium text-lg">{q.question}</p>
+                                    </div>
+                                </div>
+
+                                {!revealedAnswers[index] && userScores[index] === undefined && (
+                                    <button
+                                        onClick={() => toggleAnswer(index)}
+                                        className="mt-6 ml-16 text-green-600 hover:text-green-800 font-medium flex items-center space-x-1 text-lg"
+                                    >
+                                        <span>👁️ Reveal Answer</span>
+                                    </button>
+                                )}
+
+                                {revealedAnswers[index] && userScores[index] === undefined && (
+                                    <div className="mt-6 ml-16">
+                                        {typingIndex === index ? (
+                                            <TypingPractice
+                                                text={q.answer}
+                                                onComplete={() => handleTypingComplete(index)}
+                                                onCancel={() => setTypingIndex(null)}
+                                                settings={typingSettings}
+                                                label="Answer"
+                                            />
+                                        ) : (
+                                            <>
+                                                <div className="bg-white p-6 rounded-lg border border-green-200">
+                                                    <p className="text-gray-700 text-lg">{q.answer}</p>
+                                                </div>
+                                                <div className="mt-4 flex flex-wrap gap-3">
+                                                    <button
+                                                        onClick={() => startTyping(index)}
+                                                        className="bg-blue-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition flex items-center gap-2"
+                                                    >
+                                                        ⌨️ Type to Memorize
+                                                    </button>
+                                                    <button
+                                                        onClick={() => markScore(index, true)}
+                                                        className="bg-green-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-600 transition"
+                                                    >
+                                                        ✅ I knew this
+                                                    </button>
+                                                    <button
+                                                        onClick={() => markScore(index, false)}
+                                                        className="bg-red-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-600 transition"
+                                                    >
+                                                        ❌ Didn't know
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+
+                                {userScores[index] !== undefined && (
+                                    <div className="mt-6 ml-16">
+                                        <div className="bg-white p-4 rounded-lg border border-green-200">
+                                            <p className="text-gray-700">{q.answer}</p>
+                                        </div>
+                                        <p className={`mt-2 font-medium ${userScores[index] ? 'text-green-600' : 'text-red-600'}`}>
+                                            {userScores[index] ? '✅ You knew this!' : '❌ Keep practicing!'}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+                        <h3 className="text-lg font-bold text-blue-800 mb-2">📖 Test Yourself</h3>
+                        <p className="text-blue-700">
+                            These questions are from the Cambridge IGCSE Geography Study and Revision Guide (p.125-127).
+                            Try to answer each question, then reveal and <b>type the answer to memorize it</b>!
+                        </p>
+                    </div>
+
+                    {totalAnswered > 0 && (
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                            <div className="flex justify-between items-center">
+                                <span className="text-gray-600">Progress: {totalAnswered}/{questions.length}</span>
+                                <span className="font-semibold text-green-600">Score: {totalScore}/{totalAnswered}</span>
+                            </div>
+                            <div className="mt-2 bg-gray-200 rounded-full h-2">
+                                <div
+                                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${(totalAnswered / questions.length) * 100}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="space-y-4">
+                        {questions.map((q, index) => (
+                            <div key={index} className={`border rounded-lg overflow-hidden ${
+                                userScores[index] !== undefined
+                                    ? (userScores[index] ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50')
+                                    : 'border-gray-200'
+                            }`}>
+                                <div className="p-4">
+                                    <div className="flex items-start space-x-3">
+                                        <span className="flex-shrink-0 w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold">
+                                            {q.number}
+                                        </span>
+                                        <div className="flex-grow">
+                                            <p className="text-gray-800 font-medium">{q.question}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => setFocusedIndex(index)}
+                                            className="flex-shrink-0 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition"
+                                            title="Focus on this question"
+                                        >
+                                            Focus →
+                                        </button>
+                                    </div>
+
+                                    {!revealedAnswers[index] && userScores[index] === undefined && (
+                                        <button
+                                            onClick={() => toggleAnswer(index)}
+                                            className="mt-4 ml-11 text-green-600 hover:text-green-800 font-medium flex items-center space-x-1"
+                                        >
+                                            <span>👁️ Reveal Answer</span>
+                                        </button>
+                                    )}
+
+                                    {revealedAnswers[index] && userScores[index] === undefined && (
+                                        <div className="mt-4 ml-11">
+                                            {typingIndex === index ? (
+                                                <TypingPractice
+                                                    text={q.answer}
+                                                    onComplete={() => handleTypingComplete(index)}
+                                                    onCancel={() => setTypingIndex(null)}
+                                                    settings={typingSettings}
+                                                    label="Answer"
+                                                />
+                                            ) : (
+                                                <>
+                                                    <div className="bg-white p-4 rounded-lg border border-green-200">
+                                                        <p className="text-gray-700">{q.answer}</p>
+                                                    </div>
+
+                                                    <div className="mt-3 flex flex-wrap gap-3">
+                                                        <button
+                                                            onClick={() => startTyping(index)}
+                                                            className="bg-blue-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-600 transition flex items-center gap-2"
+                                                        >
+                                                            ⌨️ Type to Memorize
+                                                        </button>
+                                                        <button
+                                                            onClick={() => markScore(index, true)}
+                                                            className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition flex items-center space-x-2"
+                                                        >
+                                                            <span>✅</span>
+                                                            <span>I knew this</span>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => markScore(index, false)}
+                                                            className="bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition flex items-center space-x-2"
+                                                        >
+                                                            <span>❌</span>
+                                                            <span>Need to review</span>
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {userScores[index] !== undefined && (
+                                        <div className="mt-4 ml-11">
+                                            <div className="bg-white p-4 rounded-lg border border-green-200 mb-2">
+                                                <p className="text-gray-700">{q.answer}</p>
+                                            </div>
+                                            <div className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                                                userScores[index] ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'
+                                            }`}>
+                                                {userScores[index] ? '✅ Correct!' : '❌ Review this'}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="text-center text-sm text-gray-400">
+                        Source: Cambridge IGCSE and O Level Geography Study and Revision Guide (p.125-127)
+                    </div>
+                </div>
+            );
+        }
+
+        // Quiz Tab Component - ENHANCED with Type to Review
+        function QuizTab({ questions, topicId, typingSettings, startIndex = 0, onStartIndexUsed }) {
+            const [currentIndex, setCurrentIndex] = useState(startIndex);
+            const [answer, setAnswer] = useState('');
+            const [result, setResult] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [hintLevel, setHintLevel] = useState(0);
+            const [hint, setHint] = useState('');
+            const [stats, setStats] = useState({ correct: 0, total: 0, marks: 0, maxMarks: 0 });
+            const [isTypingReview, setIsTypingReview] = useState(false);
+
+            // Handle startIndex from navigation
+            useEffect(() => {
+                if (startIndex > 0 && startIndex < questions.length) {
+                    setCurrentIndex(startIndex);
+                    setAnswer('');
+                    setResult(null);
+                    setHint('');
+                    setHintLevel(0);
+                    setIsTypingReview(false);
+                    if (onStartIndexUsed) onStartIndexUsed();
+                }
+            }, [startIndex, questions.length, onStartIndexUsed]);
+
+            const current = questions[currentIndex];
+
+            const submitAnswer = async () => {
+                setLoading(true);
+                const res = await api.post(`/questions/${current.id}/submit`, {
+                    answer,
+                    use_ai_marking: true
+                });
+                setResult(res);
+                setStats(prev => ({
+                    correct: res?.is_correct ? prev.correct + 1 : prev.correct,
+                    total: prev.total + 1,
+                    marks: prev.marks + (res?.marks_awarded || 0),
+                    maxMarks: prev.maxMarks + (res?.marks_possible || current.marks)
+                }));
+                setLoading(false);
+            };
+
+            const getHint = async () => {
+                const newLevel = Math.min(hintLevel + 1, 3);
+                setHintLevel(newLevel);
+                const res = await api.post('/ai/hint', {
+                    question_id: current.id,
+                    hint_level: newLevel
+                });
+                setHint(res?.hint || 'Think about the key terms for this topic.');
+            };
+
+            const nextQuestion = () => {
+                setCurrentIndex(currentIndex + 1);
+                setAnswer('');
+                setResult(null);
+                setHint('');
+                setHintLevel(0);
+                setIsTypingReview(false);
+            };
+
+            const previousQuestion = () => {
+                if (currentIndex > 0) {
+                    setCurrentIndex(currentIndex - 1);
+                    setAnswer('');
+                    setResult(null);
+                    setHint('');
+                    setHintLevel(0);
+                    setIsTypingReview(false);
+                }
+            };
+
+            const generateSimilar = async () => {
+                setLoading(true);
+                const res = await api.post('/ai/generate-questions', {
+                    question_id: current.id,
+                    num_questions: 3
+                });
+                if (res?.questions?.length) {
+                    alert(`Generated ${res.questions.length} new questions! They'll appear in your next quiz.`);
+                } else if (res?.error) {
+                    alert(res.error);
+                }
+                setLoading(false);
+            };
+
+            const handleTypingComplete = () => {
+                setIsTypingReview(false);
+                // Show celebration
+                confetti({
+                    particleCount: 80,
+                    spread: 60,
+                    origin: { y: 0.7 },
+                    colors: ['#22c55e', '#3b82f6', '#f59e0b']
+                });
+            };
+
+            if (!questions.length) {
+                return <div className="text-center py-8 text-gray-500">No questions available for this topic.</div>;
+            }
+
+            if (currentIndex >= questions.length) {
+                const percentage = stats.maxMarks > 0 ? Math.round(stats.marks / stats.maxMarks * 100) : 0;
+                return (
+                    <div className="text-center py-8">
+                        <div className="text-6xl mb-4">{percentage >= 70 ? '🌟' : percentage >= 50 ? '👍' : '📚'}</div>
+                        <h3 className="text-2xl font-bold text-gray-800 mb-2">Quiz Complete!</h3>
+                        <p className="text-xl text-gray-600 mb-2">
+                            Score: {stats.marks}/{stats.maxMarks} marks ({percentage}%)
+                        </p>
+                        <p className="text-gray-500 mb-6">
+                            {stats.correct} of {stats.total} questions correct
+                        </p>
+                        <button
+                            onClick={() => { setCurrentIndex(0); setStats({ correct: 0, total: 0, marks: 0, maxMarks: 0 }); }}
+                            className="bg-green-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-600"
+                        >
+                            Try Again
+                        </button>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-2xl mx-auto">
+                    {/* Navigation Controls */}
+                    <div className="flex items-center justify-center gap-4 mb-4">
+                        <button
+                            onClick={previousQuestion}
+                            disabled={currentIndex === 0}
+                            className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        >
+                            ← Prev
+                        </button>
+                        <span className="text-gray-500">
+                            Question {currentIndex + 1} of {questions.length}
+                        </span>
+                        <button
+                            onClick={nextQuestion}
+                            disabled={currentIndex >= questions.length - 1 || !result}
+                            className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                        >
+                            Next →
+                        </button>
+                    </div>
+
+                    <div className="flex justify-end mb-4">
+                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+                            {current.assessment_objective || 'AO1'} • {current.marks} mark{current.marks > 1 ? 's' : ''}
+                        </span>
+                    </div>
+
+                    <div className="bg-gray-50 p-6 rounded-lg mb-6">
+                        <h3 className="text-lg font-medium text-gray-800">{current.question_text}</h3>
+                    </div>
+
+                    {!result ? (
+                        <>
+                            <textarea
+                                value={answer}
+                                onChange={(e) => setAnswer(e.target.value)}
+                                placeholder="Type your answer here..."
+                                className="w-full p-4 border rounded-lg mb-4 h-32 focus:ring-2 focus:ring-green-500 focus:outline-none"
+                            />
+
+                            {hint && (
+                                <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-4">
+                                    <span className="text-yellow-700">💡 Hint: {hint}</span>
+                                </div>
+                            )}
+
+                            <div className="flex justify-between">
+                                <button
+                                    onClick={getHint}
+                                    disabled={hintLevel >= 3}
+                                    className="text-yellow-600 hover:text-yellow-800 disabled:opacity-50"
+                                >
+                                    {hintLevel === 0 ? '💡 Get Hint' : `💡 More Hints (${3 - hintLevel} left)`}
+                                </button>
+
+                                <button
+                                    onClick={submitAnswer}
+                                    disabled={loading || !answer.trim()}
+                                    className="bg-green-500 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-600 disabled:opacity-50"
+                                >
+                                    {loading ? 'Checking...' : 'Submit Answer'}
+                                </button>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className={`p-4 rounded-lg ${result.is_correct ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                                <div className="flex items-center mb-2">
+                                    <span className="text-2xl mr-2">{result.is_correct ? '✅' : '❌'}</span>
+                                    <span className="font-bold text-lg">
+                                        {result.marks_awarded}/{result.marks_possible} marks
+                                    </span>
+                                </div>
+                                <p className="text-gray-700">{result.feedback}</p>
+                            </div>
+
+                            {result.correct_points?.length > 0 && (
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold text-green-700 mb-2">✓ Correct Points:</h4>
+                                    <ul className="list-disc list-inside text-green-600">
+                                        {result.correct_points.map((p, i) => <li key={i}>{p}</li>)}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {result.missing_points?.length > 0 && (
+                                <div className="bg-red-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold text-red-700 mb-2">✗ Missing Points:</h4>
+                                    <ul className="list-disc list-inside text-red-600">
+                                        {result.missing_points.map((p, i) => <li key={i}>{p}</li>)}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Model Answer with Type to Memorize */}
+                            <div className="bg-blue-50 p-4 rounded-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h4 className="font-semibold text-blue-700">📝 Model Answer:</h4>
+                                    {!isTypingReview && (
+                                        <button
+                                            onClick={() => setIsTypingReview(true)}
+                                            className="text-sm bg-blue-500 text-white px-3 py-1 rounded-full hover:bg-blue-600 transition flex items-center gap-1"
+                                        >
+                                            ⌨️ Type to Memorize
+                                        </button>
+                                    )}
+                                </div>
+
+                                {isTypingReview ? (
+                                    <TypingPractice
+                                        text={result.model_answer}
+                                        onComplete={handleTypingComplete}
+                                        onCancel={() => setIsTypingReview(false)}
+                                        settings={typingSettings}
+                                        label="Model Answer"
+                                    />
+                                ) : (
+                                    <p className="text-gray-700">{result.model_answer}</p>
+                                )}
+                            </div>
+
+                            {result.teacher_comment && (
+                                <div className="bg-purple-50 p-4 rounded-lg">
+                                    <h4 className="font-semibold text-purple-700 mb-2">👩‍🏫 Teacher Comment:</h4>
+                                    <p className="text-gray-700">{result.teacher_comment}</p>
+                                </div>
+                            )}
+
+                            <div className="flex justify-between pt-4">
+                                <button
+                                    onClick={generateSimilar}
+                                    disabled={loading}
+                                    className="text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                                >
+                                    🔄 Generate Similar Questions
+                                </button>
+
+                                <button
+                                    onClick={nextQuestion}
+                                    className="bg-green-500 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-600"
+                                >
+                                    Next Question →
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Progress View Component
+        function ProgressView() {
+            const [progress, setProgress] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                api.get('/progress').then(data => {
+                    setProgress(data);
+                    setLoading(false);
+                });
+            }, []);
+
+            if (loading) return <div className="text-center py-8">Loading progress...</div>;
+
+            const overall = progress?.overall || {};
+
+            return (
+                <div className="max-w-6xl mx-auto p-6">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-6">📊 Your Progress</h2>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                            <div className="text-4xl mb-2">📝</div>
+                            <div className="text-3xl font-bold text-gray-800">{overall.questions_attempted || 0}</div>
+                            <div className="text-gray-500">Questions Attempted</div>
+                        </div>
+
+                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                            <div className="text-4xl mb-2">✅</div>
+                            <div className="text-3xl font-bold text-green-600">{overall.questions_correct || 0}</div>
+                            <div className="text-gray-500">Correct Answers</div>
+                        </div>
+
+                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                            <div className="text-4xl mb-2">🎯</div>
+                            <div className="text-3xl font-bold text-blue-600">{overall.accuracy || 0}%</div>
+                            <div className="text-gray-500">Accuracy Rate</div>
+                        </div>
+
+                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                            <div className="text-4xl mb-2">🃏</div>
+                            <div className="text-3xl font-bold text-purple-600">{overall.definitions_studied || 0}</div>
+                            <div className="text-gray-500">Definitions Studied</div>
+                        </div>
+                    </div>
+
+                    {progress?.weak_points_count > 0 && (
+                        <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-6">
+                            <span className="text-yellow-700">
+                                ⚠️ You have {progress.weak_points_count} weak point{progress.weak_points_count > 1 ? 's' : ''} to work on.
+                                Check the Weak Points section!
+                            </span>
+                        </div>
+                    )}
+
+                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <h3 className="text-xl font-bold text-gray-800 p-6 border-b">Progress by Topic</h3>
+
+                        <div className="divide-y">
+                            {progress?.by_topic?.map((item, i) => (
+                                <div key={i} className="p-4 flex items-center justify-between">
+                                    <div>
+                                        <span className="font-semibold text-green-600">{item.topic_number}</span>
+                                        <span className="ml-2 text-gray-700">{item.topic_name}</span>
+                                    </div>
+                                    <div className="flex items-center space-x-6">
+                                        <div className="text-sm text-gray-500">
+                                            {item.questions_correct}/{item.questions_attempted} correct
+                                        </div>
+                                        <div className="w-32 bg-gray-200 rounded-full h-2">
+                                            <div
+                                                className="bg-green-500 h-2 rounded-full"
+                                                style={{ width: `${item.questions_attempted > 0 ? (item.questions_correct / item.questions_attempted * 100) : 0}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {(!progress?.by_topic || progress.by_topic.length === 0) && (
+                                <div className="p-8 text-center text-gray-500">
+                                    No progress yet. Start studying to track your learning!
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Weak Points View Component
+        function WeakPointsView() {
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                api.get('/weak-points').then(result => {
+                    setData(result);
+                    setLoading(false);
+                });
+            }, []);
+
+            if (loading) return <div className="text-center py-8">Loading weak points...</div>;
+
+            const weakPoints = data?.weak_points || [];
+
+            return (
+                <div className="max-w-6xl mx-auto p-6">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-6">🎯 Weak Points</h2>
+
+                    {data?.analysis && (
+                        <div className="bg-blue-50 border border-blue-200 p-6 rounded-xl mb-6">
+                            <h3 className="font-bold text-blue-700 mb-2">🤖 AI Analysis</h3>
+                            <p className="text-gray-700 whitespace-pre-line">{data.analysis}</p>
+                        </div>
+                    )}
+
+                    {weakPoints.length === 0 ? (
+                        <div className="bg-green-50 p-8 rounded-xl text-center">
+                            <div className="text-6xl mb-4">🌟</div>
+                            <h3 className="text-xl font-bold text-gray-800">No weak points!</h3>
+                            <p className="text-gray-600">Keep up the great work!</p>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4">
+                            {weakPoints.map((wp, i) => (
+                                <div key={i} className="bg-white p-4 rounded-xl shadow-lg border-l-4 border-red-500">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-sm">
+                                            {wp.failure_count}x incorrect
+                                        </span>
+                                        <span className="text-gray-500 text-sm">{wp.topic}</span>
+                                    </div>
+
+                                    {wp.type === 'definition' && (
+                                        <div>
+                                            <p className="font-semibold text-gray-800">{wp.term}</p>
+                                            <p className="text-gray-600">{wp.definition}</p>
+                                        </div>
+                                    )}
+
+                                    {wp.type === 'question' && (
+                                        <div>
+                                            <p className="font-semibold text-gray-800">{wp.question}</p>
+                                            <details className="mt-2">
+                                                <summary className="text-green-600 cursor-pointer">Show model answer</summary>
+                                                <p className="text-gray-600 mt-2">{wp.model_answer}</p>
+                                            </details>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Settings View Component - ENHANCED with Typing Settings
+        function SettingsView({ typingSettings, onTypingSettingsChange }) {
+            const [settings, setSettings] = useState(null);
+            const [models, setModels] = useState({});
+            const [loading, setLoading] = useState(true);
+            const [validating, setValidating] = useState({});
+            const [saveStatus, setSaveStatus] = useState({});
+            const [activeSection, setActiveSection] = useState('ai'); // 'ai' or 'typing'
+
+            const [formData, setFormData] = useState({
+                default_provider: 'claude',
+                claude_model: 'claude-haiku-4-5-20251001',
+                claude_api_key: '',
+                claude_validated: false,
+                gemini_model: 'gemini-2.0-flash',
+                gemini_api_key: '',
+                gemini_validated: false,
+                openai_model: 'gpt-4o-mini',
+                openai_api_key: '',
+                openai_validated: false
+            });
+
+            useEffect(() => {
+                api.get('/ai/settings').then(data => {
+                    if (data?.settings) {
+                        setSettings(data.settings);
+                        setFormData({
+                            default_provider: data.settings.default_provider || 'claude',
+                            claude_model: data.settings.claude_model || 'claude-haiku-4-5-20251001',
+                            claude_api_key: data.settings.claude_api_key || '',
+                            claude_validated: data.settings.claude_validated || false,
+                            gemini_model: data.settings.gemini_model || 'gemini-2.0-flash',
+                            gemini_api_key: data.settings.gemini_api_key || '',
+                            gemini_validated: data.settings.gemini_validated || false,
+                            openai_model: data.settings.openai_model || 'gpt-4o-mini',
+                            openai_api_key: data.settings.openai_api_key || '',
+                            openai_validated: data.settings.openai_validated || false
+                        });
+                    }
+                    if (data?.models) setModels(data.models);
+                    setLoading(false);
+                });
+            }, []);
+
+            const autoSave = async (field, value) => {
+                setSaveStatus(prev => ({ ...prev, [field]: 'saving' }));
+                await api.put('/ai/settings', { [field]: value });
+                setSaveStatus(prev => ({ ...prev, [field]: 'saved' }));
+                setTimeout(() => setSaveStatus(prev => ({ ...prev, [field]: null })), 2000);
+            };
+
+            const handleModelChange = async (provider, modelId) => {
+                setFormData(prev => ({ ...prev, [`${provider}_model`]: modelId }));
+                await autoSave(`${provider}_model`, modelId);
+            };
+
+            const handleSetDefault = async (provider) => {
+                setFormData(prev => ({ ...prev, default_provider: provider }));
+                await autoSave('default_provider', provider);
+            };
+
+            const handleValidate = async (provider) => {
+                setValidating(prev => ({ ...prev, [provider]: true }));
+
+                const keyField = `${provider}_api_key`;
+                const apiKey = formData[keyField];
+
+                if (!apiKey || apiKey.startsWith('•')) {
+                    alert('Please enter an API key first');
+                    setValidating(prev => ({ ...prev, [provider]: false }));
+                    return;
+                }
+
+                const result = await api.post('/ai/validate-key', { provider, api_key: apiKey });
+
+                if (result?.valid) {
+                    setFormData(prev => ({
+                        ...prev,
+                        [`${provider}_validated`]: true,
+                        [`${provider}_api_key`]: '•'.repeat(20) + apiKey.slice(-4)
+                    }));
+                    if (result.models) {
+                        setModels(prev => ({ ...prev, [provider]: result.models }));
+                    }
+                    alert(`✅ ${provider.charAt(0).toUpperCase() + provider.slice(1)} API key validated and saved!`);
+                } else {
+                    alert(`❌ Invalid API key: ${result?.error || 'Unknown error'}`);
+                }
+
+                setValidating(prev => ({ ...prev, [provider]: false }));
+            };
+
+            const handleKeyChange = (provider, value) => {
+                setFormData(prev => ({
+                    ...prev,
+                    [`${provider}_api_key`]: value,
+                    [`${provider}_validated`]: value.startsWith('•') ? prev[`${provider}_validated`] : false
+                }));
+            };
+
+            if (loading) return <div className="text-center py-8">Loading settings...</div>;
+
+            const providers = [
+                { id: 'claude', name: 'Claude', company: 'Anthropic', icon: '🔮', color: 'purple', url: 'https://console.anthropic.com' },
+                { id: 'gemini', name: 'Gemini', company: 'Google', icon: '💎', color: 'blue', url: 'https://aistudio.google.com/apikey' },
+                { id: 'openai', name: 'OpenAI', company: 'OpenAI', icon: '🤖', color: 'green', url: 'https://platform.openai.com/api-keys' }
+            ];
+
+            return (
+                <div className="max-w-5xl mx-auto p-6">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-6">⚙️ Settings</h2>
+
+                    {/* Section Tabs */}
+                    <div className="flex gap-2 mb-6">
+                        <button
+                            onClick={() => setActiveSection('ai')}
+                            className={`px-4 py-2 rounded-lg font-medium transition ${
+                                activeSection === 'ai'
+                                    ? 'bg-green-500 text-white'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                        >
+                            🤖 AI Providers
+                        </button>
+                        <button
+                            onClick={() => setActiveSection('typing')}
+                            className={`px-4 py-2 rounded-lg font-medium transition ${
+                                activeSection === 'typing'
+                                    ? 'bg-green-500 text-white'
+                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}
+                        >
+                            ⌨️ Typing Practice
+                        </button>
+                    </div>
+
+                    {activeSection === 'ai' ? (
+                        <div className="grid gap-6">
+                            {providers.map(provider => {
+                                const isDefault = formData.default_provider === provider.id;
+                                const isValidated = formData[`${provider.id}_validated`];
+                                const currentModel = formData[`${provider.id}_model`];
+                                const providerModels = models[provider.id] || [];
+
+                                return (
+                                    <div key={provider.id} className={`bg-white rounded-xl shadow-lg p-6 border-2 ${isDefault ? 'border-green-500' : 'border-transparent'}`}>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="flex items-center space-x-3">
+                                                <span className="text-3xl">{provider.icon}</span>
+                                                <div>
+                                                    <h3 className="text-xl font-bold text-gray-800">{provider.name}</h3>
+                                                    <span className="text-sm text-gray-500">{provider.company}</span>
+                                                </div>
+                                                {isValidated && <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-sm">✓ Connected</span>}
+                                            </div>
+                                            <button
+                                                onClick={() => handleSetDefault(provider.id)}
+                                                className={`px-4 py-2 rounded-lg font-medium transition ${
+                                                    isDefault
+                                                        ? 'bg-green-500 text-white'
+                                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                }`}
+                                            >
+                                                {isDefault ? '★ Default' : 'Set as Default'}
+                                            </button>
+                                        </div>
+
+                                        <div className="grid md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-gray-700 font-medium mb-2">API Key</label>
+                                                <div className="flex space-x-2">
+                                                    <input
+                                                        type="password"
+                                                        value={formData[`${provider.id}_api_key`]}
+                                                        onChange={(e) => handleKeyChange(provider.id, e.target.value)}
+                                                        placeholder={`Enter ${provider.name} API key`}
+                                                        className="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                    />
+                                                    <button
+                                                        onClick={() => handleValidate(provider.id)}
+                                                        disabled={validating[provider.id]}
+                                                        className={`px-4 py-2 rounded-lg font-medium transition ${
+                                                            isValidated
+                                                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                                : 'bg-blue-500 text-white hover:bg-blue-600'
+                                                        } disabled:opacity-50`}
+                                                    >
+                                                        {validating[provider.id] ? '...' : isValidated ? 'Re-validate' : 'Validate'}
+                                                    </button>
+                                                </div>
+                                                <a href={provider.url} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                                                    Get API key →
+                                                </a>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-gray-700 font-medium mb-2">
+                                                    Model
+                                                    {saveStatus[`${provider.id}_model`] === 'saving' && <span className="ml-2 text-gray-400 text-sm">Saving...</span>}
+                                                    {saveStatus[`${provider.id}_model`] === 'saved' && <span className="ml-2 text-green-500 text-sm">✓ Saved</span>}
+                                                </label>
+                                                <select
+                                                    value={currentModel}
+                                                    onChange={(e) => handleModelChange(provider.id, e.target.value)}
+                                                    disabled={!isValidated && providerModels.length === 0}
+                                                    className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none ${
+                                                        !isValidated && providerModels.length === 0 ? 'bg-gray-100 text-gray-400' : ''
+                                                    }`}
+                                                >
+                                                    {providerModels.length > 0 ? (
+                                                        providerModels.map(model => (
+                                                            <option key={model.id} value={model.id}>
+                                                                {model.name} {model.description ? `- ${model.description}` : ''}
+                                                            </option>
+                                                        ))
+                                                    ) : (
+                                                        <option value={currentModel}>Validate API key to see models</option>
+                                                    )}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            <div className="p-4 bg-blue-50 rounded-lg">
+                                <h4 className="font-semibold text-blue-800 mb-2">💡 Tips:</h4>
+                                <ul className="text-sm text-blue-700 space-y-1">
+                                    <li>• The <b>default provider</b> will be used for AI marking and question generation</li>
+                                    <li>• <b>Claude Haiku</b> is recommended for fast, cost-effective responses</li>
+                                    <li>• <b>Gemini Flash</b> is a good free alternative</li>
+                                    <li>• Settings are auto-saved when you change the model or default provider</li>
+                                </ul>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-xl shadow-lg p-6">
+                            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                ⌨️ Typing Practice Settings
+                            </h3>
+
+                            <div className="space-y-6">
+                                {/* Enable/Disable */}
+                                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                    <div>
+                                        <div className="font-medium text-gray-800">Enable Typing Mode</div>
+                                        <div className="text-sm text-gray-500">Practice definitions and answers by typing them</div>
+                                    </div>
+                                    <button
+                                        onClick={() => onTypingSettingsChange({ ...typingSettings, enabled: !typingSettings.enabled })}
+                                        className={`w-14 h-8 rounded-full transition-colors relative ${
+                                            typingSettings.enabled ? 'bg-green-500' : 'bg-gray-300'
+                                        }`}
+                                    >
+                                        <div className={`absolute w-6 h-6 bg-white rounded-full top-1 transition-transform ${
+                                            typingSettings.enabled ? 'translate-x-7' : 'translate-x-1'
+                                        }`} />
+                                    </button>
+                                </div>
+
+                                {/* Memory Duration */}
+                                <div className="p-4 bg-gray-50 rounded-lg">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div>
+                                            <div className="font-medium text-gray-800">Memory Timer</div>
+                                            <div className="text-sm text-gray-500">How long to show text before hiding it</div>
+                                        </div>
+                                        <span className="text-lg font-mono font-bold text-green-600">{typingSettings.memoryDuration}s</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="3"
+                                        max="30"
+                                        step="1"
+                                        value={typingSettings.memoryDuration}
+                                        onChange={(e) => onTypingSettingsChange({ ...typingSettings, memoryDuration: parseInt(e.target.value) })}
+                                        className="w-full accent-green-500"
+                                    />
+                                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                                        <span>3s (Hard)</span>
+                                        <span>30s (Easy)</span>
+                                    </div>
+                                </div>
+
+                                {/* Stuck Timeout */}
+                                <div className="p-4 bg-gray-50 rounded-lg">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div>
+                                            <div className="font-medium text-gray-800">Hint Delay</div>
+                                            <div className="text-sm text-gray-500">How long before showing a hint when stuck</div>
+                                        </div>
+                                        <span className="text-lg font-mono font-bold text-yellow-600">{typingSettings.stuckTimeout}s</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="10"
+                                        step="1"
+                                        value={typingSettings.stuckTimeout}
+                                        onChange={(e) => onTypingSettingsChange({ ...typingSettings, stuckTimeout: parseInt(e.target.value) })}
+                                        className="w-full accent-yellow-500"
+                                    />
+                                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                                        <span>1s (Quick hints)</span>
+                                        <span>10s (Challenge mode)</span>
+                                    </div>
+                                </div>
+
+                                {/* Sound Effects */}
+                                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                    <div>
+                                        <div className="font-medium text-gray-800">🔊 Sound Effects</div>
+                                        <div className="text-sm text-gray-500">Key clicks, dings, and celebration sounds</div>
+                                    </div>
+                                    <button
+                                        onClick={() => onTypingSettingsChange({ ...typingSettings, soundEnabled: !typingSettings.soundEnabled })}
+                                        className={`w-14 h-8 rounded-full transition-colors relative ${
+                                            typingSettings.soundEnabled ? 'bg-green-500' : 'bg-gray-300'
+                                        }`}
+                                    >
+                                        <div className={`absolute w-6 h-6 bg-white rounded-full top-1 transition-transform ${
+                                            typingSettings.soundEnabled ? 'translate-x-7' : 'translate-x-1'
+                                        }`} />
+                                    </button>
+                                </div>
+
+                                {/* TTS */}
+                                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                    <div>
+                                        <div className="font-medium text-gray-800">🗣️ Text-to-Speech</div>
+                                        <div className="text-sm text-gray-500">Read definitions aloud before typing</div>
+                                    </div>
+                                    <button
+                                        onClick={() => onTypingSettingsChange({ ...typingSettings, ttsEnabled: !typingSettings.ttsEnabled })}
+                                        className={`w-14 h-8 rounded-full transition-colors relative ${
+                                            typingSettings.ttsEnabled ? 'bg-green-500' : 'bg-gray-300'
+                                        }`}
+                                    >
+                                        <div className={`absolute w-6 h-6 bg-white rounded-full top-1 transition-transform ${
+                                            typingSettings.ttsEnabled ? 'translate-x-7' : 'translate-x-1'
+                                        }`} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 p-4 bg-green-50 rounded-lg">
+                                <h4 className="font-semibold text-green-800 mb-2">💡 How Typing Practice Works:</h4>
+                                <ul className="text-sm text-green-700 space-y-1">
+                                    <li>1. <b>Show</b> - Read and memorize the definition</li>
+                                    <li>2. <b>Dim</b> - Text fades after the timer (or first keystroke)</li>
+                                    <li>3. <b>Type</b> - Reproduce from memory</li>
+                                    <li>4. <b>Hint</b> - If stuck, the next word appears</li>
+                                    <li>5. <b>Celebrate</b> - Confetti when you nail it! 🎉</li>
+                                </ul>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Main App Component
+        function App() {
+            const [user, setUser] = useState(null);
+            const [currentView, setCurrentView] = useState('topics');
+            const [selectedTopic, setSelectedTopic] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            // Typing settings state
+            const [typingSettings, setTypingSettings] = useState(() => {
+                const saved = localStorage.getItem('typingSettings');
+                return saved ? JSON.parse(saved) : {
+                    enabled: true,
+                    memoryDuration: 5,
+                    stuckTimeout: 2,
+                    soundEnabled: true,
+                    ttsEnabled: true
+                };
+            });
+
+            // Save typing settings to localStorage
+            useEffect(() => {
+                localStorage.setItem('typingSettings', JSON.stringify(typingSettings));
+            }, [typingSettings]);
+
+            useEffect(() => {
+                // Check for existing session
+                const token = localStorage.getItem('token');
+                if (token) {
+                    api.token = token;
+                    api.get('/auth/me').then(userData => {
+                        if (userData && !userData.error) {
+                            setUser(userData);
+                        }
+                        setLoading(false);
+                    });
+                } else {
+                    setLoading(false);
+                }
+            }, []);
+
+            const handleLogout = async () => {
+                await api.post('/auth/logout');
+                api.token = null;
+                localStorage.removeItem('token');
+                setUser(null);
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                        <div className="text-center">
+                            <div className="text-6xl animate-bounce">🌍</div>
+                            <p className="text-gray-600 mt-4">Loading Geography Guru...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!user) {
+                return <Login onLogin={setUser} />;
+            }
+
+            const handleViewChange = (view) => {
+                setSelectedTopic(null);
+                setCurrentView(view);
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <Navigation
+                        user={user}
+                        currentView={currentView}
+                        setCurrentView={handleViewChange}
+                        onLogout={handleLogout}
+                    />
+
+                    <main>
+                        {currentView === 'topics' && !selectedTopic && (
+                            <TopicsList onSelectTopic={setSelectedTopic} />
+                        )}
+
+                        {currentView === 'topics' && selectedTopic && (
+                            <TopicDetail
+                                topic={selectedTopic}
+                                onBack={() => setSelectedTopic(null)}
+                                typingSettings={typingSettings}
+                            />
+                        )}
+
+                        {currentView === 'progress' && <ProgressView />}
+                        {currentView === 'weak-points' && <WeakPointsView />}
+                        {currentView === 'settings' && (
+                            <SettingsView
+                                typingSettings={typingSettings}
+                                onTypingSettingsChange={setTypingSettings}
+                            />
+                        )}
+                    </main>
+
+                    <footer className="text-center py-6 text-gray-500 text-sm">
+                        <p>IGCSE Geography Guru • Built for exam success 🎓</p>
+                    </footer>
+                </div>
+            );
+        }
+
+        // Render the app
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
