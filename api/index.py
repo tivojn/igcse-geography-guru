@@ -9,14 +9,7 @@ import urllib.request
 import urllib.error
 import uuid
 
-# Import test yourself data
-try:
-    from api.content_data import TEST_YOURSELF
-except ImportError:
-    try:
-        from content_data import TEST_YOURSELF
-    except ImportError:
-        TEST_YOURSELF = {}
+# Test Yourself data is now stored in Supabase
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://wamzijrgngnvuzczxoqx.supabase.co')
 SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
@@ -296,11 +289,19 @@ class handler(BaseHTTPRequestHandler):
             parts = path.split('/')
             if len(parts) > 2:
                 topic_id = parts[-1]
-                data = TEST_YOURSELF.get(topic_id, {})
-                questions = [{"number": q["id"], "question": q["q"], "answer": q["a"]} for q in data.get("questions", [])]
-                self._json_response(200, questions)
+                # Fetch from Supabase
+                questions = supabase_get('test_yourself', {
+                    'topic_id': f'eq.{topic_id}',
+                    'select': '*',
+                    'order': 'question_number'
+                })
+                # Format response
+                formatted = [{"number": q["question_number"], "question": q["question"], "answer": q["answer"]} for q in questions]
+                self._json_response(200, formatted)
             else:
-                self._json_response(200, TEST_YOURSELF)
+                # Return all topics
+                questions = supabase_get('test_yourself', {'select': '*', 'order': 'topic_id,question_number'})
+                self._json_response(200, questions)
             return
 
         if '/ai/settings' in path:
