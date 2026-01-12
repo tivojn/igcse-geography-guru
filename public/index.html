@@ -1958,6 +1958,21 @@
                 }));
             };
 
+            const [reloading, setReloading] = useState({});
+
+            const handleReloadModels = async (provider) => {
+                setReloading(prev => ({ ...prev, [provider]: true }));
+                try {
+                    const data = await api.get('/ai/settings');
+                    if (data?.models?.[provider]) {
+                        setModels(prev => ({ ...prev, [provider]: data.models[provider] }));
+                    }
+                } catch (err) {
+                    console.error('Failed to reload models:', err);
+                }
+                setReloading(prev => ({ ...prev, [provider]: false }));
+            };
+
             if (loading) return <div className="text-center py-8">Loading settings...</div>;
 
             const providers = [
@@ -2059,24 +2074,34 @@
                                                     {saveStatus[`${provider.id}_model`] === 'saving' && <span className="ml-2 text-gray-400 text-sm">Saving...</span>}
                                                     {saveStatus[`${provider.id}_model`] === 'saved' && <span className="ml-2 text-green-500 text-sm">✓ Saved</span>}
                                                 </label>
-                                                <select
-                                                    value={currentModel}
-                                                    onChange={(e) => handleModelChange(provider.id, e.target.value)}
-                                                    disabled={!isValidated && providerModels.length === 0}
-                                                    className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none ${
-                                                        !isValidated && providerModels.length === 0 ? 'bg-gray-100 text-gray-400' : ''
-                                                    }`}
-                                                >
-                                                    {providerModels.length > 0 ? (
-                                                        providerModels.map(model => (
-                                                            <option key={model.id} value={model.id}>
-                                                                {model.name} {model.description ? `- ${model.description}` : ''}
-                                                            </option>
-                                                        ))
-                                                    ) : (
-                                                        <option value={currentModel}>Validate API key to see models</option>
-                                                    )}
-                                                </select>
+                                                <div className="flex space-x-2">
+                                                    <select
+                                                        value={currentModel}
+                                                        onChange={(e) => handleModelChange(provider.id, e.target.value)}
+                                                        disabled={!isValidated && providerModels.length === 0}
+                                                        className={`flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none ${
+                                                            !isValidated && providerModels.length === 0 ? 'bg-gray-100 text-gray-400' : ''
+                                                        }`}
+                                                    >
+                                                        {providerModels.length > 0 ? (
+                                                            providerModels.map(model => (
+                                                                <option key={model.id} value={model.id}>
+                                                                    {model.name} {model.description ? `- ${model.description}` : ''}
+                                                                </option>
+                                                            ))
+                                                        ) : (
+                                                            <option value={currentModel}>Validate API key to see models</option>
+                                                        )}
+                                                    </select>
+                                                    <button
+                                                        onClick={() => handleReloadModels(provider.id)}
+                                                        disabled={reloading[provider.id]}
+                                                        title="Reload model list"
+                                                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition disabled:opacity-50"
+                                                    >
+                                                        {reloading[provider.id] ? '...' : '↻'}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
