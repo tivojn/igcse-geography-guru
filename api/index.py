@@ -29,7 +29,7 @@ def supabase_get(table, params=None):
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read().decode('utf-8'))
     except Exception as e:
-        return {"_error": str(e), "_url": url, "_has_key": bool(SUPABASE_KEY)}
+        return []
 
 class handler(BaseHTTPRequestHandler):
     def _cors_headers(self):
@@ -60,9 +60,6 @@ class handler(BaseHTTPRequestHandler):
         # Topics list
         if path == '/topics':
             topics = supabase_get('topics', {'select': '*', 'order': 'theme_number,topic_number'})
-            if isinstance(topics, dict) and '_error' in topics:
-                self._json_response(200, topics)  # Return debug info
-                return
             themes = {}
             for t in topics:
                 n = t['theme_number']
