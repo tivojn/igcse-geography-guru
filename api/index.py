@@ -9,6 +9,15 @@ import urllib.request
 import urllib.error
 import uuid
 
+# Import test yourself data
+try:
+    from api.content_data import TEST_YOURSELF
+except ImportError:
+    try:
+        from content_data import TEST_YOURSELF
+    except ImportError:
+        TEST_YOURSELF = {}
+
 SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://wamzijrgngnvuzczxoqx.supabase.co')
 SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 
@@ -284,7 +293,6 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if '/test-yourself' in path:
-            from content_data import TEST_YOURSELF
             parts = path.split('/')
             if len(parts) > 2:
                 topic_id = parts[-1]

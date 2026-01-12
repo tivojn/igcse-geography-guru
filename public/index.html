@@ -1435,6 +1435,7 @@
             const [hint, setHint] = useState('');
             const [stats, setStats] = useState({ correct: 0, total: 0, marks: 0, maxMarks: 0 });
             const [isTypingReview, setIsTypingReview] = useState(false);
+            const [quizMode, setQuizMode] = useState('quiz'); // 'quiz' or 'type'
 
             // Handle startIndex from navigation
             useEffect(() => {
@@ -1526,6 +1527,85 @@
                 return <div className="text-center py-8 text-gray-500">No questions available for this topic.</div>;
             }
 
+            // Type Mode - shows question and model answer for typing practice
+            if (quizMode === 'type') {
+                return (
+                    <div className="max-w-2xl mx-auto">
+                        {/* Mode Toggle */}
+                        <div className="flex justify-center gap-2 mb-6">
+                            <button
+                                onClick={() => setQuizMode('quiz')}
+                                className="px-4 py-2 rounded-lg font-medium transition bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            >
+                                Quiz Mode
+                            </button>
+                            <button
+                                onClick={() => setQuizMode('type')}
+                                className="px-4 py-2 rounded-lg font-medium transition bg-green-500 text-white"
+                            >
+                                Type Mode
+                            </button>
+                        </div>
+
+                        {/* Navigation */}
+                        <div className="flex items-center justify-center gap-4 mb-4">
+                            <button
+                                onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+                                disabled={currentIndex === 0}
+                                className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            >
+                                ← Prev
+                            </button>
+                            <span className="text-gray-500">
+                                Question {currentIndex + 1} of {questions.length}
+                            </span>
+                            <button
+                                onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}
+                                disabled={currentIndex >= questions.length - 1}
+                                className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            >
+                                Next →
+                            </button>
+                        </div>
+
+                        <div className="flex justify-end mb-4">
+                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+                                {current.assessment_objective || 'AO1'} • {current.marks} mark{current.marks > 1 ? 's' : ''}
+                            </span>
+                        </div>
+
+                        {/* Question */}
+                        <div className="bg-gray-50 p-6 rounded-lg mb-6">
+                            <h3 className="text-lg font-medium text-gray-800">{current.question_text}</h3>
+                        </div>
+
+                        {/* Model Answer for Typing */}
+                        <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                            <div className="text-sm text-blue-600 font-medium mb-2">Model Answer to Practice:</div>
+                            <div className="text-gray-800">{current.mark_scheme || current.model_answer || 'No model answer available.'}</div>
+                        </div>
+
+                        {/* Typing Practice */}
+                        {typingSettings?.enabled ? (
+                            <TypingPractice
+                                textToType={current.mark_scheme || current.model_answer || 'No model answer'}
+                                onComplete={() => {
+                                    confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+                                    if (currentIndex < questions.length - 1) {
+                                        setTimeout(() => setCurrentIndex(currentIndex + 1), 500);
+                                    }
+                                }}
+                                settings={typingSettings}
+                            />
+                        ) : (
+                            <div className="bg-yellow-50 p-4 rounded-lg text-yellow-700">
+                                Enable Typing Practice in Settings to practice typing answers.
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+
             if (currentIndex >= questions.length) {
                 const percentage = stats.maxMarks > 0 ? Math.round(stats.marks / stats.maxMarks * 100) : 0;
                 return (
@@ -1550,6 +1630,22 @@
 
             return (
                 <div className="max-w-2xl mx-auto">
+                    {/* Mode Toggle */}
+                    <div className="flex justify-center gap-2 mb-6">
+                        <button
+                            onClick={() => setQuizMode('quiz')}
+                            className="px-4 py-2 rounded-lg font-medium transition bg-green-500 text-white"
+                        >
+                            Quiz Mode
+                        </button>
+                        <button
+                            onClick={() => setQuizMode('type')}
+                            className="px-4 py-2 rounded-lg font-medium transition bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        >
+                            Type Mode
+                        </button>
+                    </div>
+
                     {/* Navigation Controls */}
                     <div className="flex items-center justify-center gap-4 mb-4">
                         <button
