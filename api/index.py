@@ -1628,7 +1628,7 @@ Return ONLY a JSON array with this format:
 
                 if document_ids:
                     # Multi-doc: search each document and combine results
-                    chunks_per_doc = max(3, 8 // len(document_ids))  # More chunks if fewer docs
+                    chunks_per_doc = max(5, 10 // len(document_ids))  # More chunks if fewer docs
                     for doc_id in document_ids:
                         search_params = {
                             'query_embedding': query_embedding,
