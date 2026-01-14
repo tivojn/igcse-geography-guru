@@ -870,6 +870,48 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
+        # Debug endpoint to test brute-force similarity (bypasses ivfflat index)
+        if path == '/debug/brute':
+            query = self._get_query_param('q')
+            if not query:
+                self._json_response(400, {"error": "Missing query parameter 'q'"})
+                return
+
+            # Get embedding for query
+            settings = supabase_get('ai_settings', {'select': 'openai_api_key', 'limit': '1'})
+            if not settings or not settings[0].get('openai_api_key'):
+                self._json_response(400, {"error": "No OpenAI API key configured"})
+                return
+
+            api_key = settings[0]['openai_api_key']
+            emb_result = get_openai_embedding(api_key, query)
+            if not emb_result.get('success'):
+                self._json_response(500, {"error": f"Embedding failed: {emb_result.get('error')}"})
+                return
+
+            query_embedding = emb_result['embedding']
+
+            # Use Python fallback which does brute-force cosine similarity
+            chunks = search_chunks_fallback(query_embedding, 10, None)
+
+            results = []
+            for i, chunk in enumerate(chunks or []):
+                results.append({
+                    'rank': i + 1,
+                    'page_number': chunk.get('page_number'),
+                    'similarity': round(chunk.get('similarity', 0), 4),
+                    'content_preview': chunk.get('content', '')[:300],
+                    'chunk_index': chunk.get('chunk_index')
+                })
+
+            self._json_response(200, {
+                'query': query,
+                'method': 'brute_force_python',
+                'total_results': len(results),
+                'results': results
+            })
+            return
+
         # Debug endpoint to check embeddings status
         if path == '/debug/embeddings':
             # Check a sample of chunks to see if they have embeddings
