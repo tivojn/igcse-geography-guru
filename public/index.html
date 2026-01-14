@@ -603,6 +603,9 @@
         function Navigation({ user, currentView, setCurrentView, onLogout }) {
             const navItems = [
                 { id: 'topics', label: 'Topics', icon: '📚' },
+                { id: 'exam-practice', label: 'Exam Practice', icon: '📝' },
+                { id: 'case-studies', label: 'Case Studies', icon: '🌍' },
+                { id: 'study-guide', label: 'Study Guide', icon: '💡' },
                 { id: 'progress', label: 'Progress', icon: '📊' },
                 { id: 'weak-points', label: 'Weak Points', icon: '🎯' },
                 { id: 'settings', label: 'Settings', icon: '⚙️' }
@@ -2342,6 +2345,512 @@
             );
         }
 
+        // ============================================
+        // NEW FEATURE COMPONENTS
+        // ============================================
+
+        // Exam Practice View - Practice with real exam questions
+        function ExamPracticeView() {
+            const [questions, setQuestions] = useState([]);
+            const [topics, setTopics] = useState([]);
+            const [selectedTopic, setSelectedTopic] = useState(null);
+            const [currentQuestion, setCurrentQuestion] = useState(0);
+            const [showAnswer, setShowAnswer] = useState(false);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                api.get('/topics').then(data => {
+                    const allTopics = [];
+                    (data || []).forEach(theme => {
+                        theme.topics.forEach(t => allTopics.push({...t, theme_name: theme.theme_name}));
+                    });
+                    setTopics(allTopics);
+                    setLoading(false);
+                });
+            }, []);
+
+            const loadQuestions = async (topicId) => {
+                setLoading(true);
+                const data = await api.get(`/exam-questions/${topicId}`);
+                setQuestions(data || []);
+                setCurrentQuestion(0);
+                setShowAnswer(false);
+                setSelectedTopic(topicId);
+                setLoading(false);
+            };
+
+            if (loading) return <div className="text-center py-8">Loading...</div>;
+
+            if (!selectedTopic) {
+                return (
+                    <div className="max-w-6xl mx-auto p-6">
+                        <h2 className="text-3xl font-bold text-gray-800 mb-2">📝 Exam Practice</h2>
+                        <p className="text-gray-600 mb-6">Practice with real IGCSE exam-style questions and model answers</p>
+
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            {topics.map(topic => (
+                                <button
+                                    key={topic.id}
+                                    onClick={() => loadQuestions(topic.id)}
+                                    className="p-4 bg-white rounded-lg shadow hover:shadow-lg transition border-l-4 border-blue-500 text-left"
+                                >
+                                    <span className="font-bold text-blue-600">{topic.topic_number}</span>
+                                    <span className="text-gray-700 ml-2">{topic.topic_name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+
+            if (questions.length === 0) {
+                return (
+                    <div className="max-w-4xl mx-auto p-6">
+                        <button onClick={() => setSelectedTopic(null)} className="mb-4 text-blue-600 hover:text-blue-800">
+                            ← Back to topics
+                        </button>
+                        <div className="text-center py-12 bg-white rounded-lg">
+                            <p className="text-gray-500">No exam questions available for this topic yet.</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            const q = questions[currentQuestion];
+
+            return (
+                <div className="max-w-4xl mx-auto p-6">
+                    <button onClick={() => setSelectedTopic(null)} className="mb-4 text-blue-600 hover:text-blue-800">
+                        ← Back to topics
+                    </button>
+
+                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div className="bg-gradient-to-r from-blue-500 to-indigo-500 p-4 flex justify-between items-center">
+                            <h3 className="text-white font-bold">Question {currentQuestion + 1} of {questions.length}</h3>
+                            <span className="bg-white/20 text-white px-3 py-1 rounded-full text-sm">
+                                [{q.marks} marks]
+                            </span>
+                        </div>
+
+                        <div className="p-6">
+                            <p className="text-lg text-gray-800 mb-6">{q.question}</p>
+
+                            {q.command_word && (
+                                <div className="mb-4 inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm">
+                                    Command word: <strong>{q.command_word}</strong>
+                                </div>
+                            )}
+
+                            {!showAnswer ? (
+                                <button
+                                    onClick={() => setShowAnswer(true)}
+                                    className="w-full py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition"
+                                >
+                                    Show Model Answer
+                                </button>
+                            ) : (
+                                <div className="mt-4">
+                                    <h4 className="font-bold text-green-700 mb-2">✓ Model Answer:</h4>
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                        <p className="text-gray-800 whitespace-pre-line">{q.model_answer}</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex justify-between mt-6">
+                                <button
+                                    onClick={() => { setCurrentQuestion(Math.max(0, currentQuestion - 1)); setShowAnswer(false); }}
+                                    disabled={currentQuestion === 0}
+                                    className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
+                                >
+                                    ← Previous
+                                </button>
+                                <button
+                                    onClick={() => { setCurrentQuestion(Math.min(questions.length - 1, currentQuestion + 1)); setShowAnswer(false); }}
+                                    disabled={currentQuestion === questions.length - 1}
+                                    className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+                                >
+                                    Next →
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Case Studies View - Browse all case studies
+        function CaseStudiesView() {
+            const [caseStudies, setCaseStudies] = useState([]);
+            const [topics, setTopics] = useState({});
+            const [selectedCase, setSelectedCase] = useState(null);
+            const [filter, setFilter] = useState('all');
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                Promise.all([
+                    api.get('/case-studies'),
+                    api.get('/topics')
+                ]).then(([cases, topicsData]) => {
+                    setCaseStudies(cases || []);
+                    const topicMap = {};
+                    (topicsData || []).forEach(theme => {
+                        theme.topics.forEach(t => topicMap[t.id] = t);
+                    });
+                    setTopics(topicMap);
+                    setLoading(false);
+                });
+            }, []);
+
+            if (loading) return <div className="text-center py-8">Loading case studies...</div>;
+
+            const categories = [...new Set(caseStudies.map(c => c.category).filter(Boolean))];
+            const filtered = filter === 'all' ? caseStudies : caseStudies.filter(c => c.category === filter);
+
+            if (selectedCase) {
+                const c = selectedCase;
+                const keyFacts = c.key_facts ? (typeof c.key_facts === 'string' ? JSON.parse(c.key_facts) : c.key_facts) : [];
+
+                return (
+                    <div className="max-w-4xl mx-auto p-6">
+                        <button onClick={() => setSelectedCase(null)} className="mb-4 text-green-600 hover:text-green-800">
+                            ← Back to case studies
+                        </button>
+
+                        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                            <div className="bg-gradient-to-r from-green-500 to-teal-500 p-6">
+                                <h2 className="text-2xl font-bold text-white">{c.name}</h2>
+                                <p className="text-white/80 mt-1">📍 {c.location}</p>
+                            </div>
+
+                            <div className="p-6 space-y-6">
+                                {c.overview && (
+                                    <div>
+                                        <h3 className="font-bold text-gray-800 mb-2">📋 Overview</h3>
+                                        <p className="text-gray-700">{c.overview}</p>
+                                    </div>
+                                )}
+
+                                {c.causes && (
+                                    <div>
+                                        <h3 className="font-bold text-red-600 mb-2">⚠️ Causes</h3>
+                                        <p className="text-gray-700 bg-red-50 p-3 rounded">{c.causes}</p>
+                                    </div>
+                                )}
+
+                                {c.effects && (
+                                    <div>
+                                        <h3 className="font-bold text-orange-600 mb-2">💥 Effects</h3>
+                                        <p className="text-gray-700 bg-orange-50 p-3 rounded">{c.effects}</p>
+                                    </div>
+                                )}
+
+                                {c.solutions && (
+                                    <div>
+                                        <h3 className="font-bold text-green-600 mb-2">✅ Solutions/Responses</h3>
+                                        <p className="text-gray-700 bg-green-50 p-3 rounded">{c.solutions}</p>
+                                    </div>
+                                )}
+
+                                {keyFacts.length > 0 && (
+                                    <div>
+                                        <h3 className="font-bold text-blue-600 mb-2">📊 Key Facts (Exam Ready)</h3>
+                                        <ul className="bg-blue-50 p-4 rounded space-y-2">
+                                            {keyFacts.map((fact, i) => (
+                                                <li key={i} className="flex items-start">
+                                                    <span className="text-blue-500 mr-2">•</span>
+                                                    <span className="text-gray-800">{fact}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+
+                                {c.exam_relevance && (
+                                    <div className="bg-purple-50 border border-purple-200 p-4 rounded">
+                                        <h3 className="font-bold text-purple-700 mb-1">🎯 Exam Relevance</h3>
+                                        <p className="text-gray-700">{c.exam_relevance}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-6xl mx-auto p-6">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-2">🌍 Case Studies</h2>
+                    <p className="text-gray-600 mb-6">Essential case studies for your IGCSE Geography exam</p>
+
+                    <div className="mb-6 flex flex-wrap gap-2">
+                        <button
+                            onClick={() => setFilter('all')}
+                            className={`px-4 py-2 rounded-full transition ${filter === 'all' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
+                        >
+                            All ({caseStudies.length})
+                        </button>
+                        {categories.map(cat => (
+                            <button
+                                key={cat}
+                                onClick={() => setFilter(cat)}
+                                className={`px-4 py-2 rounded-full transition capitalize ${filter === cat ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
+                            >
+                                {cat}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {filtered.map(c => (
+                            <button
+                                key={c.id}
+                                onClick={() => setSelectedCase(c)}
+                                className="bg-white p-4 rounded-lg shadow hover:shadow-lg transition text-left border-l-4 border-green-500"
+                            >
+                                <h3 className="font-bold text-gray-800">{c.name}</h3>
+                                <p className="text-sm text-gray-500">📍 {c.location}</p>
+                                {c.category && (
+                                    <span className="inline-block mt-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded capitalize">
+                                        {c.category}
+                                    </span>
+                                )}
+                                {topics[c.topic_id] && (
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        Topic {topics[c.topic_id].topic_number}
+                                    </p>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+
+                    {filtered.length === 0 && (
+                        <div className="text-center py-12 text-gray-500">
+                            No case studies found for this category.
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Study Guide View - Tips and Common Errors
+        function StudyGuideView() {
+            const [tips, setTips] = useState([]);
+            const [errors, setErrors] = useState([]);
+            const [topics, setTopics] = useState({});
+            const [activeTab, setActiveTab] = useState('tips');
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                Promise.all([
+                    api.get('/tips'),
+                    api.get('/common-errors'),
+                    api.get('/topics')
+                ]).then(([tipsData, errorsData, topicsData]) => {
+                    setTips(tipsData || []);
+                    setErrors(errorsData || []);
+                    const topicMap = {};
+                    (topicsData || []).forEach(theme => {
+                        theme.topics.forEach(t => topicMap[t.id] = t);
+                    });
+                    setTopics(topicMap);
+                    setLoading(false);
+                });
+            }, []);
+
+            if (loading) return <div className="text-center py-8">Loading study guide...</div>;
+
+            // Group tips by type
+            const examTips = tips.filter(t => t.tip_type === 'exam');
+            const studyTips = tips.filter(t => t.tip_type === 'study');
+
+            return (
+                <div className="max-w-6xl mx-auto p-6">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-2">💡 Study Guide</h2>
+                    <p className="text-gray-600 mb-6">Expert tips and common mistakes to avoid</p>
+
+                    <div className="flex gap-4 mb-6">
+                        <button
+                            onClick={() => setActiveTab('tips')}
+                            className={`px-6 py-3 rounded-lg font-semibold transition ${activeTab === 'tips' ? 'bg-yellow-500 text-white' : 'bg-gray-200'}`}
+                        >
+                            💡 Tips ({tips.length})
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('errors')}
+                            className={`px-6 py-3 rounded-lg font-semibold transition ${activeTab === 'errors' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
+                        >
+                            ⚠️ Common Errors ({errors.length})
+                        </button>
+                    </div>
+
+                    {activeTab === 'tips' && (
+                        <div className="space-y-6">
+                            {examTips.length > 0 && (
+                                <div>
+                                    <h3 className="text-xl font-bold text-blue-600 mb-4">📝 Exam Tips</h3>
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        {examTips.map(tip => (
+                                            <div key={tip.id} className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                                                <p className="text-gray-800">{tip.tip_text}</p>
+                                                {topics[tip.topic_id] && (
+                                                    <p className="text-xs text-blue-600 mt-2">
+                                                        Topic {topics[tip.topic_id].topic_number}: {topics[tip.topic_id].topic_name}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {studyTips.length > 0 && (
+                                <div>
+                                    <h3 className="text-xl font-bold text-yellow-600 mb-4">📚 Study Tips</h3>
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        {studyTips.map(tip => (
+                                            <div key={tip.id} className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+                                                <p className="text-gray-800">{tip.tip_text}</p>
+                                                {topics[tip.topic_id] && (
+                                                    <p className="text-xs text-yellow-600 mt-2">
+                                                        Topic {topics[tip.topic_id].topic_number}: {topics[tip.topic_id].topic_name}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'errors' && (
+                        <div className="space-y-4">
+                            {errors.map(error => (
+                                <div key={error.id} className="bg-white rounded-lg shadow overflow-hidden">
+                                    <div className="bg-red-100 p-4 border-l-4 border-red-500">
+                                        <h4 className="font-bold text-red-800">❌ Common Error:</h4>
+                                        <p className="text-red-700 italic">"{error.error_statement}"</p>
+                                    </div>
+                                    <div className="p-4 bg-green-50 border-l-4 border-green-500">
+                                        <h4 className="font-bold text-green-800">✅ Why it's wrong:</h4>
+                                        <p className="text-gray-700">{error.explanation}</p>
+                                    </div>
+                                    {topics[error.topic_id] && (
+                                        <div className="px-4 py-2 bg-gray-50 text-xs text-gray-500">
+                                            Topic {topics[error.topic_id].topic_number}: {topics[error.topic_id].topic_name}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Sample Answers View - Learn from example answers
+        function SampleAnswersView() {
+            const [answers, setAnswers] = useState([]);
+            const [topics, setTopics] = useState({});
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                Promise.all([
+                    api.get('/sample-answers'),
+                    api.get('/topics')
+                ]).then(([answersData, topicsData]) => {
+                    setAnswers(answersData || []);
+                    const topicMap = {};
+                    (topicsData || []).forEach(theme => {
+                        theme.topics.forEach(t => topicMap[t.id] = t);
+                    });
+                    setTopics(topicMap);
+                    setLoading(false);
+                });
+            }, []);
+
+            if (loading) return <div className="text-center py-8">Loading sample answers...</div>;
+
+            if (answers.length === 0) {
+                return (
+                    <div className="max-w-4xl mx-auto p-6 text-center">
+                        <h2 className="text-3xl font-bold text-gray-800 mb-4">📊 Sample Answers</h2>
+                        <p className="text-gray-500">No sample answers available yet.</p>
+                    </div>
+                );
+            }
+
+            const a = answers[currentIndex];
+
+            return (
+                <div className="max-w-4xl mx-auto p-6">
+                    <h2 className="text-3xl font-bold text-gray-800 mb-2">📊 Sample Answers Analysis</h2>
+                    <p className="text-gray-600 mb-6">Learn from real student answers and teacher feedback</p>
+
+                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 flex justify-between items-center">
+                            <span className="text-white font-bold">Example {currentIndex + 1} of {answers.length}</span>
+                            {a.marks_awarded && a.marks_available && (
+                                <span className="bg-white/20 text-white px-3 py-1 rounded-full">
+                                    Score: {a.marks_awarded}/{a.marks_available}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <h4 className="font-bold text-gray-700 mb-2">📝 Question:</h4>
+                                <p className="text-gray-800">{a.question_context}</p>
+                            </div>
+
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                <h4 className="font-bold text-blue-700 mb-2">✍️ Student's Answer:</h4>
+                                <p className="text-gray-800 whitespace-pre-line">{a.student_answer}</p>
+                            </div>
+
+                            <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                                <h4 className="font-bold text-purple-700 mb-2">👨‍🏫 Teacher's Comments:</h4>
+                                <p className="text-gray-800">{a.teacher_comments}</p>
+                            </div>
+
+                            {a.strengths && (
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <h4 className="font-bold text-green-700 mb-2">✅ Strengths:</h4>
+                                    <p className="text-gray-700">{a.strengths}</p>
+                                </div>
+                            )}
+
+                            {a.improvements && (
+                                <div className="bg-orange-50 p-4 rounded-lg">
+                                    <h4 className="font-bold text-orange-700 mb-2">📈 To Improve:</h4>
+                                    <p className="text-gray-700">{a.improvements}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex justify-between p-4 bg-gray-50">
+                            <button
+                                onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+                                disabled={currentIndex === 0}
+                                className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
+                            >
+                                ← Previous
+                            </button>
+                            <button
+                                onClick={() => setCurrentIndex(Math.min(answers.length - 1, currentIndex + 1))}
+                                disabled={currentIndex === answers.length - 1}
+                                className="px-4 py-2 bg-purple-500 text-white rounded disabled:opacity-50"
+                            >
+                                Next →
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         // Main App Component
         function App() {
             const [user, setUser] = useState(null);
@@ -2431,6 +2940,10 @@
                             />
                         )}
 
+                        {currentView === 'exam-practice' && <ExamPracticeView />}
+                        {currentView === 'case-studies' && <CaseStudiesView />}
+                        {currentView === 'study-guide' && <StudyGuideView />}
+                        {currentView === 'sample-answers' && <SampleAnswersView />}
                         {currentView === 'progress' && <ProgressView />}
                         {currentView === 'weak-points' && <WeakPointsView />}
                         {currentView === 'settings' && (

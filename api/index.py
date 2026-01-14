@@ -365,6 +365,142 @@ class handler(BaseHTTPRequestHandler):
             self._json_response(200, {"by_topic": [], "overall": {"questions_attempted": 0, "questions_correct": 0, "accuracy": 0}, "weak_points_count": 0})
             return
 
+        # ============================================
+        # NEW ENDPOINTS FOR UPGRADED FEATURES
+        # ============================================
+
+        # Exam Questions with Model Answers
+        if path == '/exam-questions':
+            questions = supabase_get('exam_questions', {'select': '*', 'order': 'topic_id'})
+            self._json_response(200, questions)
+            return
+
+        if path.startswith('/exam-questions/'):
+            topic_id = path.split('/')[-1]
+            questions = supabase_get('exam_questions', {
+                'topic_id': f'eq.{topic_id}',
+                'select': '*',
+                'order': 'marks'
+            })
+            self._json_response(200, questions)
+            return
+
+        # Case Studies
+        if path == '/case-studies':
+            case_studies = supabase_get('case_studies', {'select': '*', 'order': 'topic_id'})
+            self._json_response(200, case_studies)
+            return
+
+        if path.startswith('/case-studies/topic/'):
+            topic_id = path.split('/')[-1]
+            case_studies = supabase_get('case_studies', {
+                'topic_id': f'eq.{topic_id}',
+                'select': '*'
+            })
+            self._json_response(200, case_studies)
+            return
+
+        if path.startswith('/case-studies/') and '/topic/' not in path:
+            case_id = path.split('/')[-1]
+            case_studies = supabase_get('case_studies', {'id': f'eq.{case_id}'})
+            self._json_response(200, case_studies[0] if case_studies else {})
+            return
+
+        # Tips
+        if path == '/tips':
+            tips = supabase_get('tips', {'select': '*', 'order': 'topic_id'})
+            self._json_response(200, tips)
+            return
+
+        if path.startswith('/tips/'):
+            topic_id = path.split('/')[-1]
+            tips = supabase_get('tips', {
+                'topic_id': f'eq.{topic_id}',
+                'select': '*'
+            })
+            self._json_response(200, tips)
+            return
+
+        # Common Errors
+        if path == '/common-errors':
+            errors = supabase_get('common_errors', {'select': '*', 'order': 'topic_id'})
+            self._json_response(200, errors)
+            return
+
+        if path.startswith('/common-errors/'):
+            topic_id = path.split('/')[-1]
+            errors = supabase_get('common_errors', {
+                'topic_id': f'eq.{topic_id}',
+                'select': '*'
+            })
+            self._json_response(200, errors)
+            return
+
+        # Learning Objectives
+        if path == '/learning-objectives':
+            objectives = supabase_get('learning_objectives', {'select': '*', 'order': 'topic_id,order_num'})
+            self._json_response(200, objectives)
+            return
+
+        if path.startswith('/learning-objectives/'):
+            topic_id = path.split('/')[-1]
+            objectives = supabase_get('learning_objectives', {
+                'topic_id': f'eq.{topic_id}',
+                'select': '*',
+                'order': 'order_num'
+            })
+            self._json_response(200, objectives)
+            return
+
+        # Sample Answers with Teacher Comments
+        if path == '/sample-answers':
+            answers = supabase_get('sample_answers', {'select': '*', 'order': 'topic_id'})
+            self._json_response(200, answers)
+            return
+
+        if path.startswith('/sample-answers/'):
+            topic_id = path.split('/')[-1]
+            answers = supabase_get('sample_answers', {
+                'topic_id': f'eq.{topic_id}',
+                'select': '*'
+            })
+            self._json_response(200, answers)
+            return
+
+        # Combined topic content (all new features for a topic)
+        if path.startswith('/topic-content/'):
+            topic_id = path.split('/')[-1]
+            content = {
+                'exam_questions': supabase_get('exam_questions', {'topic_id': f'eq.{topic_id}', 'select': '*'}),
+                'case_studies': supabase_get('case_studies', {'topic_id': f'eq.{topic_id}', 'select': '*'}),
+                'tips': supabase_get('tips', {'topic_id': f'eq.{topic_id}', 'select': '*'}),
+                'common_errors': supabase_get('common_errors', {'topic_id': f'eq.{topic_id}', 'select': '*'}),
+                'learning_objectives': supabase_get('learning_objectives', {'topic_id': f'eq.{topic_id}', 'select': '*', 'order': 'order_num'}),
+                'sample_answers': supabase_get('sample_answers', {'topic_id': f'eq.{topic_id}', 'select': '*'})
+            }
+            self._json_response(200, content)
+            return
+
+        # Stats endpoint for dashboard
+        if path == '/stats':
+            topics_count = len(supabase_get('topics', {'select': 'id'}))
+            definitions_count = len(supabase_get('definitions', {'select': 'id'}))
+            test_yourself_count = len(supabase_get('test_yourself', {'select': 'id'}))
+            exam_questions_count = len(supabase_get('exam_questions', {'select': 'id'}))
+            case_studies_count = len(supabase_get('case_studies', {'select': 'id'}))
+            tips_count = len(supabase_get('tips', {'select': 'id'}))
+            common_errors_count = len(supabase_get('common_errors', {'select': 'id'}))
+            self._json_response(200, {
+                'topics': topics_count,
+                'definitions': definitions_count,
+                'test_yourself': test_yourself_count,
+                'exam_questions': exam_questions_count,
+                'case_studies': case_studies_count,
+                'tips': tips_count,
+                'common_errors': common_errors_count
+            })
+            return
+
         self._json_response(404, {"error": "Not found"})
 
     def do_POST(self):
