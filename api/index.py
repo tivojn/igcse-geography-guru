@@ -863,32 +863,26 @@ class handler(BaseHTTPRequestHandler):
         # Debug endpoint to check embedding status
         if path == '/debug/chunks':
             doc_id = self._get_query_param('document_id')
-            # Get chunks with embedding info
-            params = {'select': 'id,document_id,chunk_index,page_number,content,embedding'}
+            # Get chunks WITHOUT embedding (too large to return via API)
+            params = {'select': 'id,document_id,chunk_index,page_number,content'}
             if doc_id:
                 params['document_id'] = f'eq.{doc_id}'
-            params['limit'] = '5'  # Just check first 5
+            params['limit'] = '20'
+            params['order'] = 'chunk_index'
 
             chunks = supabase_get('pdf_chunks', params)
             debug_info = []
             for c in (chunks or []):
-                emb = c.get('embedding')
-                emb_info = {
+                debug_info.append({
                     'id': c.get('id'),
                     'document_id': c.get('document_id'),
                     'chunk_index': c.get('chunk_index'),
                     'page_number': c.get('page_number'),
-                    'content_preview': c.get('content', '')[:100],
-                    'has_embedding': emb is not None,
-                    'embedding_type': type(emb).__name__ if emb else None,
-                    'embedding_length': len(emb) if isinstance(emb, (list, str)) else None
-                }
-                if isinstance(emb, list) and len(emb) > 0:
-                    emb_info['embedding_sample'] = emb[:3]
-                debug_info.append(emb_info)
+                    'content_preview': c.get('content', '')[:150]
+                })
 
             self._json_response(200, {
-                'total_chunks_checked': len(debug_info),
+                'total_chunks': len(debug_info),
                 'chunks': debug_info
             })
             return
