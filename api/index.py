@@ -288,7 +288,8 @@ class handler(BaseHTTPRequestHandler):
         if '/test-yourself' in path:
             parts = path.split('/')
             if len(parts) > 2:
-                topic_id = parts[-1]
+                # Path is /api/topics/{id}/test-yourself, so topic_id is second to last
+                topic_id = parts[-2] if parts[-1] == 'test-yourself' else parts[-1]
                 # Fetch from Supabase
                 questions = supabase_get('test_yourself', {
                     'topic_id': f'eq.{topic_id}',
