@@ -100,78 +100,101 @@ def validate_gemini_key(api_key):
     """Validate Gemini API key and fetch available models"""
     return validate_gemini_key_with_models(api_key)
 
-def validate_openai_key(api_key):
-    """Validate OpenAI API key and fetch available models"""
+def list_openai_models(api_key, timeout=15):
+    """Fetch all models from OpenAI API"""
     url = "https://api.openai.com/v1/models"
-    headers = {'Authorization': f'Bearer {api_key}'}
-    req = urllib.request.Request(url, headers=headers)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "User-Agent": "igcse-geography-guru/1.0",
+    }
+    req = urllib.request.Request(url, headers=headers, method="GET")
+
     try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            all_models = data.get('data', [])
-            print(f"[OpenAI] Total models from API: {len(all_models)}")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+            payload = json.loads(body)
+        models = payload.get("data", [])
+        return [m.get("id") for m in models if isinstance(m, dict) and "id" in m]
 
-            # Filter to chat-capable models
-            chat_models = []
-            exclude_patterns = ['whisper', 'tts', 'dall-e', 'embedding', 'moderation',
-                               'instruct', 'audio', 'realtime', 'search', 'similarity',
-                               'code-', 'text-', 'davinci', 'curie', 'babbage', 'ada']
-            include_patterns = ['gpt-', 'o1', 'o3', 'o4', 'chatgpt']
-
-            for m in all_models:
-                mid = m.get('id', '')
-                # Include if matches chat model patterns
-                if any(p in mid.lower() for p in include_patterns):
-                    # Exclude non-chat models
-                    if not any(ex in mid.lower() for ex in exclude_patterns):
-                        chat_models.append({"id": mid, "name": mid})
-
-            print(f"[OpenAI] Chat models after filter: {len(chat_models)}")
-
-            # Sort: newer/better models first (o-series, then gpt-4o, then gpt-4, etc.)
-            def sort_key(m):
-                mid = m['id']
-                if mid.startswith('o3'): return (0, mid)
-                if mid.startswith('o1'): return (1, mid)
-                if 'gpt-4o' in mid: return (2, mid)
-                if 'gpt-4' in mid: return (3, mid)
-                if 'gpt-3.5' in mid: return (4, mid)
-                return (5, mid)
-
-            chat_models.sort(key=sort_key)
-
-            # Add friendly names
-            friendly = {
-                'gpt-4o': 'GPT-4o (Flagship)',
-                'gpt-4o-mini': 'GPT-4o Mini (Fast & Cheap)',
-                'gpt-4o-2024-11-20': 'GPT-4o (Nov 2024)',
-                'gpt-4o-2024-08-06': 'GPT-4o (Aug 2024)',
-                'gpt-4-turbo': 'GPT-4 Turbo',
-                'gpt-4-turbo-preview': 'GPT-4 Turbo Preview',
-                'gpt-4': 'GPT-4',
-                'gpt-3.5-turbo': 'GPT-3.5 Turbo',
-                'gpt-3.5-turbo-0125': 'GPT-3.5 Turbo (Jan 2025)',
-                'o1': 'o1 (Reasoning)',
-                'o1-mini': 'o1 Mini (Fast Reasoning)',
-                'o1-preview': 'o1 Preview',
-                'o3': 'o3 (Advanced)',
-                'o3-mini': 'o3 Mini',
-                'chatgpt-4o-latest': 'ChatGPT-4o Latest',
-            }
-            for m in chat_models:
-                if m['id'] in friendly:
-                    m['name'] = friendly[m['id']]
-
-            # Return up to 25 models
-            final_models = chat_models[:25] if chat_models else OPENAI_MODELS
-            print(f"[OpenAI] Returning {len(final_models)} models: {[m['id'] for m in final_models]}")
-            return {"valid": True, "models": final_models}
     except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        try:
+            err_payload = json.loads(raw)
+            err_msg = err_payload.get("error", {}).get("message", raw[:200])
+        except json.JSONDecodeError:
+            err_msg = raw[:200]
+
         if e.code == 401:
-            return {"valid": False, "error": "Invalid API key"}
-        error_body = e.read().decode('utf-8') if e.fp else ''
-        return {"valid": False, "error": f"HTTP {e.code}: {error_body[:200]}"}
-    except Exception as e:
+            raise ValueError("Invalid API key (401 Unauthorized)")
+        if e.code == 403:
+            raise PermissionError(f"Access forbidden (403): {err_msg}")
+        raise RuntimeError(f"OpenAI API error {e.code}: {err_msg}")
+
+    except urllib.error.URLError as e:
+        raise ConnectionError(f"Network error: {e}")
+
+
+def filter_chat_models(model_ids):
+    """Filter to chat-capable models and return with friendly names"""
+    exclude = ['whisper', 'tts', 'dall-e', 'embedding', 'moderation',
+               'instruct', 'audio', 'realtime', 'search', 'similarity',
+               'code-', 'text-', 'davinci', 'curie', 'babbage', 'ada']
+    include = ['gpt-', 'o1', 'o3', 'o4', 'chatgpt']
+
+    chat_models = []
+    for mid in model_ids:
+        mid_lower = mid.lower()
+        if any(p in mid_lower for p in include):
+            if not any(ex in mid_lower for ex in exclude):
+                chat_models.append({"id": mid, "name": mid})
+
+    # Sort: o-series first, then gpt-4o, gpt-4, gpt-3.5
+    def sort_key(m):
+        mid = m['id']
+        if mid.startswith('o3'): return (0, mid)
+        if mid.startswith('o1'): return (1, mid)
+        if 'gpt-4o' in mid: return (2, mid)
+        if 'gpt-4' in mid: return (3, mid)
+        if 'gpt-3.5' in mid: return (4, mid)
+        return (5, mid)
+    chat_models.sort(key=sort_key)
+
+    # Add friendly names
+    friendly = {
+        'gpt-4o': 'GPT-4o (Flagship)',
+        'gpt-4o-mini': 'GPT-4o Mini (Fast & Cheap)',
+        'gpt-4o-2024-11-20': 'GPT-4o (Nov 2024)',
+        'gpt-4o-2024-08-06': 'GPT-4o (Aug 2024)',
+        'gpt-4-turbo': 'GPT-4 Turbo',
+        'gpt-4-turbo-preview': 'GPT-4 Turbo Preview',
+        'gpt-4': 'GPT-4',
+        'gpt-3.5-turbo': 'GPT-3.5 Turbo',
+        'o1': 'o1 (Reasoning)',
+        'o1-mini': 'o1 Mini (Fast Reasoning)',
+        'o1-preview': 'o1 Preview',
+        'o3': 'o3 (Advanced)',
+        'o3-mini': 'o3 Mini',
+        'chatgpt-4o-latest': 'ChatGPT-4o Latest',
+    }
+    for m in chat_models:
+        if m['id'] in friendly:
+            m['name'] = friendly[m['id']]
+
+    return chat_models[:25]
+
+
+def validate_openai_key(api_key):
+    """Validate OpenAI API key and fetch available chat models"""
+    try:
+        all_models = list_openai_models(api_key)
+        chat_models = filter_chat_models(all_models)
+        return {"valid": True, "models": chat_models if chat_models else OPENAI_MODELS}
+    except ValueError as e:
+        return {"valid": False, "error": str(e)}
+    except PermissionError as e:
+        return {"valid": False, "error": str(e)}
+    except (RuntimeError, ConnectionError) as e:
         return {"valid": False, "error": str(e)}
 
 def validate_gemini_key_with_models(api_key):
