@@ -870,6 +870,37 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
+        # Debug endpoint to check embeddings status
+        if path == '/debug/embeddings':
+            # Check a sample of chunks to see if they have embeddings
+            chunks = supabase_get('pdf_chunks', {
+                'select': 'id,chunk_index,page_number,embedding',
+                'limit': '50',
+                'order': 'chunk_index'
+            })
+            has_embedding = 0
+            no_embedding = 0
+            sample_with = []
+            sample_without = []
+            for c in (chunks or []):
+                emb = c.get('embedding')
+                if emb and len(str(emb)) > 10:  # Has non-empty embedding
+                    has_embedding += 1
+                    if len(sample_with) < 3:
+                        sample_with.append({'chunk': c.get('chunk_index'), 'page': c.get('page_number'), 'emb_len': len(str(emb))})
+                else:
+                    no_embedding += 1
+                    if len(sample_without) < 3:
+                        sample_without.append({'chunk': c.get('chunk_index'), 'page': c.get('page_number')})
+            self._json_response(200, {
+                'checked': len(chunks) if chunks else 0,
+                'has_embedding': has_embedding,
+                'no_embedding': no_embedding,
+                'sample_with_embedding': sample_with,
+                'sample_without_embedding': sample_without
+            })
+            return
+
         # Debug endpoint to check embedding status
         if path == '/debug/chunks':
             doc_id = self._get_query_param('document_id')
