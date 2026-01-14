@@ -860,6 +860,16 @@ class handler(BaseHTTPRequestHandler):
             self._json_response(200, chunks)
             return
 
+        # Debug endpoint to count all chunks
+        if path == '/debug/count':
+            # Simple count of all chunks - no filters
+            chunks = supabase_get('pdf_chunks', {'select': 'id', 'limit': '1000'})
+            self._json_response(200, {
+                'total_chunks_in_db': len(chunks) if chunks else 0,
+                'sample_ids': [c.get('id') for c in (chunks or [])[:5]]
+            })
+            return
+
         # Debug endpoint to check embedding status
         if path == '/debug/chunks':
             doc_id = self._get_query_param('document_id')
