@@ -904,7 +904,7 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             api_key = settings[0]['openai_api_key']
-            emb_result = get_embedding(api_key, query)
+            emb_result = get_openai_embedding(api_key, query)
             if not emb_result.get('success'):
                 self._json_response(500, {"error": f"Embedding failed: {emb_result.get('error')}"})
                 return
