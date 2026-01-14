@@ -1648,7 +1648,7 @@ Return ONLY a JSON array with this format:
                             chunks and
                             isinstance(chunks, list) and
                             len(chunks) > 0 and
-                            chunks[0].get('similarity', 0) > 0.2
+                            chunks[0].get('similarity', 0) > 0.35
                         )
                         if not rpc_ok:
                             fallback_chunks = search_chunks_fallback(query_embedding, chunks_per_doc, doc_id)
@@ -1687,7 +1687,7 @@ Return ONLY a JSON array with this format:
                         all_chunks and
                         isinstance(all_chunks, list) and
                         len(all_chunks) > 0 and
-                        all_chunks[0].get('similarity', 0) > 0.2  # Threshold for decent match
+                        all_chunks[0].get('similarity', 0) > 0.35  # Threshold for decent match
                     )
                     if not rpc_ok:
                         debug_info['rpc_low_similarity'] = True
