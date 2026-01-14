@@ -1758,10 +1758,15 @@ ANSWER:"""
                     result = call_openai(llm_api_key, llm_model, prompt, max_tokens=1024)
 
                 if not result.get('success'):
-                    self._json_response(500, {"error": f"LLM error: {result.get('error')}"})
+                    self._json_response(500, {"error": f"LLM error: {result.get('error', 'No response from AI provider')}"})
                     return
 
                 answer = result.get('content', '')
+
+                # Check for empty answer
+                if not answer or not answer.strip():
+                    self._json_response(500, {"error": "AI returned empty response. Please try a different question or check your API key quota."})
+                    return
 
                 response_data = {
                     "answer": answer,
@@ -1783,7 +1788,11 @@ ANSWER:"""
                 return
 
             except Exception as e:
-                self._json_response(500, {"error": f"Chat error: {str(e)}"})
+                import traceback
+                error_detail = f"Chat error: {str(e)}"
+                # Log full traceback for debugging (visible in Vercel logs)
+                print(f"RAG Chat Exception: {traceback.format_exc()}")
+                self._json_response(500, {"error": error_detail})
                 return
 
         # Delete PDF document
