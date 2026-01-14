@@ -3922,7 +3922,7 @@
                         setSelectedDocs(prev => [...prev, docId]);
                         let successMsg = `Document processed successfully! ${processResult.chunks_created} chunks created from ${processResult.pages_processed} sections.`;
                         if (storageError) {
-                            successMsg += '\n\nNote: File storage unavailable (PDF preview disabled), but RAG chat works normally.';
+                            successMsg += `\n\nNote: File storage failed (${storageError}). PDF preview disabled, but RAG chat works normally.`;
                         }
                         alert(successMsg);
                     } else {
