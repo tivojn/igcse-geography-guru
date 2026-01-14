@@ -630,6 +630,10 @@
             const [viewerPage, setViewerPage] = useState(1);
             const [viewerZoom, setViewerZoom] = useState(100);
             const [viewerFullscreen, setViewerFullscreen] = useState(false);
+            const [viewerPageLoading, setViewerPageLoading] = useState(false);
+            const [viewerTotalPages, setViewerTotalPages] = useState(0);
+            const viewerPdfRef = useRef(null);
+            const viewerCanvasRef = useRef(null);
 
             // Context type labels
             const contextLabels = {
@@ -659,6 +663,62 @@
                     });
                 }
             }, [isOpen]);
+
+            // Load PDF and get total pages when doc viewer opens
+            useEffect(() => {
+                if (!showDocViewer || !viewingDoc?.public_url) {
+                    viewerPdfRef.current = null;
+                    setViewerTotalPages(0);
+                    return;
+                }
+
+                const loadPdf = async () => {
+                    setViewerPageLoading(true);
+                    try {
+                        const pdf = await pdfjsLib.getDocument(viewingDoc.public_url).promise;
+                        viewerPdfRef.current = pdf;
+                        setViewerTotalPages(pdf.numPages);
+                    } catch (err) {
+                        console.error('Failed to load PDF:', err);
+                        setViewerPageLoading(false);
+                    }
+                };
+                loadPdf();
+            }, [showDocViewer, viewingDoc?.public_url]);
+
+            // Render PDF page to canvas when page changes
+            useEffect(() => {
+                if (!viewerPdfRef.current || !viewerCanvasRef.current || !showDocViewer) return;
+
+                const renderPage = async () => {
+                    setViewerPageLoading(true);
+                    try {
+                        const page = await viewerPdfRef.current.getPage(viewerPage);
+                        const canvas = viewerCanvasRef.current;
+                        const context = canvas.getContext('2d');
+
+                        const scale = 2;
+                        const viewport = page.getViewport({ scale });
+
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+                        canvas.style.width = `${viewport.width / scale}px`;
+                        canvas.style.height = `${viewport.height / scale}px`;
+
+                        await page.render({
+                            canvasContext: context,
+                            viewport: viewport
+                        }).promise;
+
+                        setViewerPageLoading(false);
+                    } catch (err) {
+                        console.error('Failed to render page:', err);
+                        setViewerPageLoading(false);
+                    }
+                };
+
+                renderPage();
+            }, [viewerPage, viewerTotalPages, showDocViewer]);
 
             const toggleDoc = (docId) => {
                 setSelectedDocs(prev =>
@@ -939,11 +999,12 @@
                                             >
                                                 ◀
                                             </button>
-                                            <span className="text-sm font-medium px-2">Page {viewerPage}</span>
+                                            <span className="text-sm font-medium px-2">Page {viewerPage}{viewerTotalPages > 0 ? ` / ${viewerTotalPages}` : ''}</span>
                                             <button
-                                                onClick={() => setViewerPage(viewerPage + 1)}
+                                                onClick={() => setViewerPage(Math.min(viewerTotalPages || 999, viewerPage + 1))}
                                                 className="px-2 py-0.5 hover:bg-gray-100 rounded transition"
                                                 title="Next page"
+                                                disabled={viewerTotalPages > 0 && viewerPage >= viewerTotalPages}
                                             >
                                                 ▶
                                             </button>
@@ -1009,18 +1070,23 @@
                                 </div>
 
                                 {/* PDF Viewer */}
-                                <div className="flex-1 overflow-auto bg-gray-100" style={{ padding: viewerFullscreen ? '0' : '8px' }}>
+                                <div className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center relative" style={{ padding: viewerFullscreen ? '0' : '8px' }}>
+                                    {viewerPageLoading && (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-90 z-10">
+                                            <div className="text-center">
+                                                <div className="animate-spin text-4xl mb-2">⏳</div>
+                                                <p className="text-gray-600">Loading page {viewerPage}...</p>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div style={{
                                         transform: `scale(${viewerZoom / 100})`,
-                                        transformOrigin: 'top center',
-                                        width: viewerZoom > 100 ? `${100 * 100 / viewerZoom}%` : '100%',
-                                        height: viewerZoom > 100 ? `${100 * 100 / viewerZoom}%` : '100%'
+                                        transformOrigin: 'top center'
                                     }}>
-                                        <iframe
-                                            src={`${viewingDoc.public_url}#page=${viewerPage}`}
-                                            className="w-full h-full border-0 rounded bg-white shadow-lg"
-                                            style={{ minHeight: viewerFullscreen ? '100vh' : '70vh' }}
-                                            title="Document Viewer"
+                                        <canvas
+                                            ref={viewerCanvasRef}
+                                            className="border rounded bg-white shadow-lg"
+                                            style={{ maxWidth: '100%' }}
                                         />
                                     </div>
                                 </div>
@@ -3813,8 +3879,10 @@
             const [pdfViewerZoom, setPdfViewerZoom] = useState(100);
             const [pdfViewerFullscreen, setPdfViewerFullscreen] = useState(false);
             const [pdfTotalPages, setPdfTotalPages] = useState(0);
+            const [pdfPageLoading, setPdfPageLoading] = useState(false);
             const messagesEndRef = useRef(null);
             const pdfDocRef = useRef(null); // Cache loaded PDF for total pages
+            const pdfCanvasRef = useRef(null); // Canvas for rendering PDF pages
 
             // Load documents and settings (use ai_settings for API keys - same as main Settings)
             useEffect(() => {
@@ -4517,6 +4585,7 @@
                 }
 
                 const loadPdf = async () => {
+                    setPdfPageLoading(true);
                     try {
                         const pdf = await pdfjsLib.getDocument(viewingDoc.public_url).promise;
                         pdfDocRef.current = pdf;
@@ -4527,6 +4596,41 @@
                 };
                 loadPdf();
             }, [showPdfViewer, viewingDoc?.public_url]);
+
+            // Render PDF page to canvas when page changes or PDF loads
+            useEffect(() => {
+                if (!pdfDocRef.current || !pdfCanvasRef.current || !showPdfViewer) return;
+
+                const renderPage = async () => {
+                    setPdfPageLoading(true);
+                    try {
+                        const page = await pdfDocRef.current.getPage(pdfViewerPage);
+                        const canvas = pdfCanvasRef.current;
+                        const context = canvas.getContext('2d');
+
+                        // Scale for better quality (2x for retina)
+                        const scale = 2;
+                        const viewport = page.getViewport({ scale });
+
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+                        canvas.style.width = `${viewport.width / scale}px`;
+                        canvas.style.height = `${viewport.height / scale}px`;
+
+                        await page.render({
+                            canvasContext: context,
+                            viewport: viewport
+                        }).promise;
+
+                        setPdfPageLoading(false);
+                    } catch (err) {
+                        console.error('Failed to render page:', err);
+                        setPdfPageLoading(false);
+                    }
+                };
+
+                renderPage();
+            }, [pdfViewerPage, pdfTotalPages, showPdfViewer]);
 
             // Parse message content and replace page references with clickable links
             const renderMessageWithPageLinks = (content, sources = []) => {
@@ -4934,13 +5038,20 @@
                                     </div>
                                 </div>
 
-                                <div className="flex-1 overflow-auto p-2 bg-gray-100">
+                                <div className="flex-1 overflow-auto p-2 bg-gray-100 flex items-start justify-center relative">
+                                    {pdfPageLoading && (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-90 z-10">
+                                            <div className="text-center">
+                                                <div className="animate-spin text-4xl mb-2">⏳</div>
+                                                <p className="text-gray-600">Loading page {pdfViewerPage}...</p>
+                                            </div>
+                                        </div>
+                                    )}
                                     <div style={{ transform: `scale(${pdfViewerZoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.2s' }}>
-                                        <iframe
-                                            src={`${viewingDoc.public_url}#page=${pdfViewerPage}`}
-                                            className="w-full border rounded bg-white"
-                                            style={{ height: '100vh', minHeight: '600px' }}
-                                            title="Document Viewer"
+                                        <canvas
+                                            ref={pdfCanvasRef}
+                                            className="border rounded bg-white shadow-lg"
+                                            style={{ maxWidth: '100%' }}
                                         />
                                     </div>
                                 </div>
