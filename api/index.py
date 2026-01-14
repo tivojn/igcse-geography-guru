@@ -513,7 +513,12 @@ class handler(BaseHTTPRequestHandler):
 
         if '/ai/settings' in path:
             user_id = self._get_user_id()
-            settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'}) if user_id else []
+            settings = None
+            if user_id:
+                settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+            if not settings:
+                # Fallback: get first ai_settings record (for single-user/demo mode)
+                settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
             s = settings[0] if settings else {}
 
             # Fetch dynamic models for validated providers
@@ -840,13 +845,23 @@ class handler(BaseHTTPRequestHandler):
             # If valid, save to database
             if result.get('valid'):
                 user_id = self._get_user_id()
-                if user_id:
-                    data = {
-                        'user_id': user_id,
-                        f'{provider}_api_key': api_key,
-                        f'{provider}_validated': True
-                    }
-                    supabase_upsert('ai_settings', data)
+                # Use a default user_id for demo/single-user mode if no session
+                if not user_id:
+                    user_id = '00000000-0000-0000-0000-000000000001'
+
+                # Check if settings already exist for this user
+                existing = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+                data = {
+                    'user_id': user_id,
+                    f'{provider}_api_key': api_key,
+                    f'{provider}_validated': True
+                }
+                if existing:
+                    # Update existing record
+                    supabase_patch('ai_settings', data, {'user_id': f'eq.{user_id}'})
+                else:
+                    # Insert new record
+                    supabase_post('ai_settings', data)
 
             self._json_response(200, result)
             return
@@ -854,12 +869,14 @@ class handler(BaseHTTPRequestHandler):
         # Update AI settings
         if '/ai/settings' in path:
             user_id = self._get_user_id()
-            if user_id:
-                data = {'user_id': user_id}
-                for key in ['default_provider', 'claude_model', 'gemini_model', 'openai_model']:
-                    if key in body:
-                        data[key] = body[key]
-                supabase_upsert('ai_settings', data)
+            # Use default user_id for demo/single-user mode if no session
+            if not user_id:
+                user_id = '00000000-0000-0000-0000-000000000001'
+            data = {'user_id': user_id}
+            for key in ['default_provider', 'claude_model', 'gemini_model', 'openai_model']:
+                if key in body:
+                    data[key] = body[key]
+            supabase_upsert('ai_settings', data)
             self._json_response(200, {"success": True})
             return
 
@@ -1136,11 +1153,16 @@ Return ONLY a JSON array with this format:
 
             # If use_stored_key is True, get key from ai_settings
             if use_stored_key or not openai_api_key:
+                # Try user-specific settings first, then fall back to any settings
                 user_id = self._get_user_id()
+                settings = None
                 if user_id:
                     settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
-                    if settings and settings[0].get('openai_api_key'):
-                        openai_api_key = settings[0]['openai_api_key']
+                if not settings:
+                    # Fallback: get first ai_settings record (for single-user/demo mode)
+                    settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
+                if settings and settings[0].get('openai_api_key'):
+                    openai_api_key = settings[0]['openai_api_key']
 
             if not openai_api_key:
                 self._json_response(400, {"error": "Missing OpenAI API key. Please configure it in Settings first."})
@@ -1236,17 +1258,22 @@ Return ONLY a JSON array with this format:
 
             # If use_stored_key is True, get key from ai_settings
             if use_stored_key or not openai_api_key:
+                # Try user-specific settings first, then fall back to any settings
                 user_id = self._get_user_id()
+                settings = None
                 if user_id:
                     settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
-                    if settings:
-                        s = settings[0]
-                        if not openai_api_key and s.get('openai_api_key'):
-                            openai_api_key = s['openai_api_key']
-                        if not llm_api_key:
-                            # Use appropriate LLM key based on provider
-                            llm_api_key = s.get(f'{llm_provider}_api_key') or openai_api_key
-                            llm_model = s.get(f'{llm_provider}_model') or llm_model
+                if not settings:
+                    # Fallback: get first ai_settings record (for single-user/demo mode)
+                    settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
+                if settings:
+                    s = settings[0]
+                    if not openai_api_key and s.get('openai_api_key'):
+                        openai_api_key = s['openai_api_key']
+                    if not llm_api_key:
+                        # Use appropriate LLM key based on provider
+                        llm_api_key = s.get(f'{llm_provider}_api_key') or openai_api_key
+                        llm_model = s.get(f'{llm_provider}_model') or llm_model
 
             if not openai_api_key:
                 self._json_response(400, {"error": "Missing OpenAI API key. Please configure it in Settings first."})
