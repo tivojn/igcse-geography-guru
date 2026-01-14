@@ -1181,13 +1181,15 @@ Return ONLY a JSON array with this format:
                 }
                 doc_result = supabase_post('pdf_documents', doc_data)
 
-                if doc_result and not doc_result.get('error'):
-                    doc = doc_result[0] if isinstance(doc_result, list) else doc_result
+                # Check for errors - doc_result is a list on success, dict on error
+                if isinstance(doc_result, list) and len(doc_result) > 0:
+                    doc = doc_result[0]
                     doc['public_url'] = get_public_url('documents', storage_path) if storage_path else ''
                     self._json_response(200, doc)
+                elif isinstance(doc_result, dict) and doc_result.get('error'):
+                    self._json_response(500, {"error": f"Failed to create document record: {doc_result.get('error')}"})
                 else:
-                    db_error = doc_result.get('error') if doc_result else 'Unknown DB error'
-                    self._json_response(500, {"error": f"Failed to create document record: {db_error}"})
+                    self._json_response(500, {"error": "Failed to create document record: Unknown error"})
                 return
             except Exception as e:
                 self._json_response(500, {"error": f"Create record error: {str(e)}"})
