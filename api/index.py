@@ -365,6 +365,9 @@ def supabase_post(table, data):
     try:
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        return {"error": f"HTTP {e.code}: {error_body}"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -410,8 +413,60 @@ def supabase_rpc(function_name, params):
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        return {"error": f"HTTP {e.code}: {error_body}"}
     except Exception as e:
         return {"error": str(e)}
+
+def search_chunks_fallback(query_embedding, match_count=8, filter_document_id=None):
+    """Fallback search using direct SQL via PostgREST when RPC function is missing.
+    This computes cosine similarity in Python as a fallback when pgvector RPC is unavailable."""
+    import math
+
+    # Fetch all chunks with embeddings in a single query
+    params = {'select': 'id,document_id,chunk_index,page_number,content,token_count,embedding'}
+
+    if filter_document_id:
+        params['document_id'] = f'eq.{filter_document_id}'
+
+    chunks = supabase_get('pdf_chunks', params)
+
+    if not chunks or isinstance(chunks, dict):
+        return []
+
+    def cosine_similarity(vec1, vec2):
+        if not vec1 or not vec2 or len(vec1) != len(vec2):
+            return 0
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        norm1 = math.sqrt(sum(a * a for a in vec1))
+        norm2 = math.sqrt(sum(b * b for b in vec2))
+        if norm1 == 0 or norm2 == 0:
+            return 0
+        return dot_product / (norm1 * norm2)
+
+    results = []
+    for chunk in chunks:
+        chunk_embedding = chunk.get('embedding')
+        if not chunk_embedding:
+            continue
+
+        # Parse embedding if it's a string (PostgreSQL array format)
+        if isinstance(chunk_embedding, str):
+            try:
+                chunk_embedding = json.loads(chunk_embedding)
+            except:
+                continue
+
+        similarity = cosine_similarity(query_embedding, chunk_embedding)
+        # Remove embedding from result to reduce response size
+        chunk_result = {k: v for k, v in chunk.items() if k != 'embedding'}
+        chunk_result['similarity'] = similarity
+        results.append(chunk_result)
+
+    # Sort by similarity and return top matches
+    results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
+    return results[:match_count]
 
 def upload_to_supabase_storage(bucket, path, file_data, content_type='application/pdf'):
     """Upload file to Supabase storage"""
@@ -795,6 +850,39 @@ class handler(BaseHTTPRequestHandler):
                 'order': 'chunk_index'
             })
             self._json_response(200, chunks)
+            return
+
+        # Debug endpoint to check embedding status
+        if path == '/debug/chunks':
+            doc_id = self._get_query_param('document_id')
+            # Get chunks with embedding info
+            params = {'select': 'id,document_id,chunk_index,page_number,content,embedding'}
+            if doc_id:
+                params['document_id'] = f'eq.{doc_id}'
+            params['limit'] = '5'  # Just check first 5
+
+            chunks = supabase_get('pdf_chunks', params)
+            debug_info = []
+            for c in (chunks or []):
+                emb = c.get('embedding')
+                emb_info = {
+                    'id': c.get('id'),
+                    'document_id': c.get('document_id'),
+                    'chunk_index': c.get('chunk_index'),
+                    'page_number': c.get('page_number'),
+                    'content_preview': c.get('content', '')[:100],
+                    'has_embedding': emb is not None,
+                    'embedding_type': type(emb).__name__ if emb else None,
+                    'embedding_length': len(emb) if isinstance(emb, (list, str)) else None
+                }
+                if isinstance(emb, list) and len(emb) > 0:
+                    emb_info['embedding_sample'] = emb[:3]
+                debug_info.append(emb_info)
+
+            self._json_response(200, {
+                'total_chunks_checked': len(debug_info),
+                'chunks': debug_info
+            })
             return
 
         # Get user settings (for API keys)
@@ -1237,7 +1325,11 @@ Return ONLY a JSON array with this format:
                             'embedding': embedding
                         }
 
-                        supabase_post('pdf_chunks', chunk_data)
+                        insert_result = supabase_post('pdf_chunks', chunk_data)
+                        if isinstance(insert_result, dict) and insert_result.get('error'):
+                            # Log first error and continue - don't fail entire process
+                            if chunk_index == 0:
+                                print(f"Chunk insert error: {insert_result.get('error')}")
                         all_chunks.append({'chunk_index': chunk_index, 'page_number': page_number})
                         chunk_index += 1
 
@@ -1325,6 +1417,7 @@ Return ONLY a JSON array with this format:
 
                 # Search for similar chunks - either per-doc or across all
                 all_chunks = []
+                debug_info = {'rpc_results': [], 'fallback_results': [], 'document_ids': document_ids}
 
                 if document_ids:
                     # Multi-doc: search each document and combine results
@@ -1336,6 +1429,21 @@ Return ONLY a JSON array with this format:
                             'filter_document_id': doc_id
                         }
                         chunks = supabase_rpc('search_pdf_chunks', search_params)
+                        debug_info['rpc_results'].append({
+                            'doc_id': doc_id,
+                            'result_type': type(chunks).__name__,
+                            'result_count': len(chunks) if isinstance(chunks, list) else 0,
+                            'error': chunks.get('error') if isinstance(chunks, dict) else None
+                        })
+
+                        # If RPC fails (returns error dict or empty), use fallback
+                        if not chunks or isinstance(chunks, dict):
+                            chunks = search_chunks_fallback(query_embedding, chunks_per_doc, doc_id)
+                            debug_info['fallback_results'].append({
+                                'doc_id': doc_id,
+                                'result_count': len(chunks) if chunks else 0
+                            })
+
                         if chunks and not isinstance(chunks, dict):
                             for c in chunks:
                                 c['doc_filename'] = doc_info.get(doc_id, 'Document')
@@ -1346,7 +1454,21 @@ Return ONLY a JSON array with this format:
                         'query_embedding': query_embedding,
                         'match_count': 8
                     }
-                    all_chunks = supabase_rpc('search_pdf_chunks', search_params) or []
+                    all_chunks = supabase_rpc('search_pdf_chunks', search_params)
+                    debug_info['rpc_results'].append({
+                        'doc_id': None,
+                        'result_type': type(all_chunks).__name__,
+                        'result_count': len(all_chunks) if isinstance(all_chunks, list) else 0,
+                        'error': all_chunks.get('error') if isinstance(all_chunks, dict) else None
+                    })
+
+                    # If RPC fails, use fallback
+                    if not all_chunks or isinstance(all_chunks, dict):
+                        all_chunks = search_chunks_fallback(query_embedding, 8)
+                        debug_info['fallback_results'].append({
+                            'doc_id': None,
+                            'result_count': len(all_chunks) if all_chunks else 0
+                        })
 
                 # Sort by similarity and take top results
                 all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:8]
@@ -1407,10 +1529,16 @@ ANSWER:"""
 
                 answer = result.get('content', '')
 
-                self._json_response(200, {
+                response_data = {
                     "answer": answer,
                     "sources": sources
-                })
+                }
+
+                # Include debug info if no sources found (helps troubleshoot RAG issues)
+                if not sources:
+                    response_data["debug"] = debug_info
+
+                self._json_response(200, response_data)
                 return
 
             except Exception as e:
