@@ -140,7 +140,7 @@ def filter_chat_models(model_ids):
     exclude = ['whisper', 'tts', 'dall-e', 'embedding', 'moderation',
                'instruct', 'audio', 'realtime', 'search', 'similarity',
                'code-', 'text-', 'davinci', 'curie', 'babbage', 'ada']
-    include = ['gpt-', 'o1', 'o3', 'o4', 'chatgpt']
+    include = ['gpt-', 'o1', 'o3', 'o4', 'o5', 'chatgpt']  # gpt-3.5, gpt-4, gpt-5, o1, o3, o4, o5
 
     chat_models = []
     for mid in model_ids:
@@ -149,19 +149,23 @@ def filter_chat_models(model_ids):
             if not any(ex in mid_lower for ex in exclude):
                 chat_models.append({"id": mid, "name": mid})
 
-    # Sort: o-series first, then gpt-4o, gpt-4, gpt-3.5
+    # Sort: newest/best models first
     def sort_key(m):
         mid = m['id']
-        if mid.startswith('o3'): return (0, mid)
-        if mid.startswith('o1'): return (1, mid)
-        if 'gpt-4o' in mid: return (2, mid)
-        if 'gpt-4' in mid: return (3, mid)
-        if 'gpt-3.5' in mid: return (4, mid)
-        return (5, mid)
+        if 'gpt-5' in mid: return (0, mid)  # GPT-5.x first
+        if mid.startswith('o3'): return (1, mid)
+        if mid.startswith('o1'): return (2, mid)
+        if 'gpt-4o' in mid: return (3, mid)
+        if 'gpt-4' in mid: return (4, mid)
+        if 'gpt-3.5' in mid: return (5, mid)
+        return (6, mid)
     chat_models.sort(key=sort_key)
 
     # Add friendly names
     friendly = {
+        'gpt-5': 'GPT-5 (Latest)',
+        'gpt-5.2': 'GPT-5.2 (Latest)',
+        'gpt-5-turbo': 'GPT-5 Turbo',
         'gpt-4o': 'GPT-4o (Flagship)',
         'gpt-4o-mini': 'GPT-4o Mini (Fast & Cheap)',
         'gpt-4o-2024-11-20': 'GPT-4o (Nov 2024)',
@@ -252,11 +256,17 @@ def call_openai(api_key, model, prompt, max_tokens=1024):
         'Authorization': f'Bearer {api_key}',
         'Content-Type': 'application/json'
     }
-    data = json.dumps({
+    # Newer models (o1, o3, gpt-4o, gpt-5) use max_completion_tokens instead of max_tokens
+    uses_new_param = any(x in model.lower() for x in ['o1', 'o3', 'o4', 'o5', 'gpt-4o', 'gpt-5'])
+    payload = {
         "model": model,
-        "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}]
-    }).encode()
+    }
+    if uses_new_param:
+        payload["max_completion_tokens"] = max_tokens
+    else:
+        payload["max_tokens"] = max_tokens
+    data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers=headers, method='POST')
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
