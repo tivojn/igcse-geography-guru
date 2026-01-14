@@ -14,8 +14,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Supabase client for direct storage uploads -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        // Supabase client for direct uploads (anon key is safe to expose)
+        const SUPABASE_URL = 'https://wamzijrgngnvuzczxoqx.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhbXppanJnbmdudnVjenhvcXgiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTczNjU2NDI0NiwiZXhwIjoyMDUyMTQwMjQ2fQ.SgaVrfIqRApcQ-KwzVBQoMKy4JNBOFWNbJB9Ll3N-b4';
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -3770,153 +3776,163 @@
                 }
 
                 setUploading(true);
-                setUploadStatus('Reading file...');
+                setUploadStatus('Preparing upload...');
 
                 try {
-                    // Read file as base64
-                    const reader = new FileReader();
-                    reader.onerror = () => {
-                        alert('Error reading file');
+                    // Generate unique document ID and storage path
+                    const docId = crypto.randomUUID();
+                    const safeFilename = file.name.replace(/[^\w\-_.]/g, '_');
+                    const storagePath = `${docId}/${safeFilename}`;
+
+                    // Upload directly to Supabase Storage (bypasses Vercel payload limits)
+                    setUploadStatus('Uploading to storage...');
+                    console.log('Starting direct Supabase upload, size:', Math.round(file.size / 1024), 'KB');
+
+                    let storageSuccess = false;
+                    let storageError = null;
+
+                    try {
+                        const { data: uploadData, error: uploadError } = await supabaseClient.storage
+                            .from('pdfs')
+                            .upload(storagePath, file, {
+                                cacheControl: '3600',
+                                upsert: true
+                            });
+
+                        if (uploadError) {
+                            console.log('Storage upload failed (non-blocking):', uploadError.message);
+                            storageError = uploadError.message;
+                        } else {
+                            storageSuccess = true;
+                            console.log('Storage upload success:', uploadData);
+                        }
+                    } catch (storageErr) {
+                        console.log('Storage upload exception (non-blocking):', storageErr);
+                        storageError = storageErr.message;
+                    }
+
+                    // Create document record via API (just metadata, no file data)
+                    setUploadStatus('Creating document record...');
+                    let uploadResult;
+                    try {
+                        uploadResult = await api.post('/pdf/create-record', {
+                            id: docId,
+                            filename: safeFilename,
+                            original_filename: file.name,
+                            storage_path: storageSuccess ? storagePath : '',
+                            file_size: file.size
+                        });
+                        console.log('Document record created:', uploadResult);
+                    } catch (recordErr) {
+                        console.error('Failed to create document record:', recordErr);
+                        alert('Failed to create document record: ' + (recordErr.message || 'Unknown error'));
                         setUploading(false);
                         setUploadStatus('');
-                    };
-                    reader.onload = async (event) => {
-                        setUploadStatus('Uploading to server...');
-                        const base64 = event.target.result.split(',')[1];
+                        return;
+                    }
 
-                        // Check file size (warn if over 5MB base64)
-                        if (base64.length > 5 * 1024 * 1024) {
-                            setUploadStatus('Uploading large file (may take a moment)...');
+                    // Note if there was a storage warning (file storage optional)
+                    if (storageError) {
+                        console.log('Storage warning (non-blocking):', storageError);
+                    }
+
+                    // Extract text based on file type
+                    setProcessing(true);
+                    setUploadStatus('Extracting text...');
+                    let pagesText = [];
+
+                    try {
+                        switch (ext) {
+                            case 'pdf':
+                                pagesText = await extractPdfText(file);
+                                break;
+                            case 'txt':
+                            case 'md':
+                                pagesText = await extractTxtText(file);
+                                break;
+                            case 'docx':
+                                pagesText = await extractDocxText(file);
+                                break;
+                            case 'doc':
+                                alert('Old .doc format may not extract perfectly. Consider converting to .docx for best results.');
+                                pagesText = await extractTxtText(file);
+                                break;
+                            case 'rtf':
+                                pagesText = await extractRtfText(file);
+                                break;
+                            case 'odt':
+                                pagesText = await extractOdtText(file);
+                                break;
+                            case 'xlsx':
+                            case 'xls':
+                            case 'ods':
+                                pagesText = await extractXlsxText(file);
+                                break;
+                            case 'csv':
+                                pagesText = await extractCsvText(file);
+                                break;
+                            case 'pptx':
+                                pagesText = await extractPptxText(file);
+                                break;
+                            case 'ppt':
+                                alert('Old .ppt format may not extract perfectly. Consider converting to .pptx for best results.');
+                                pagesText = await extractTxtText(file);
+                                break;
+                            case 'odp':
+                                pagesText = await extractOdpText(file);
+                                break;
+                            case 'epub':
+                                pagesText = await extractEpubText(file);
+                                break;
+                            case 'html':
+                            case 'htm':
+                                pagesText = await extractHtmlText(file);
+                                break;
+                            case 'json':
+                                pagesText = await extractJsonText(file);
+                                break;
+                            case 'xml':
+                                pagesText = await extractXmlText(file);
+                                break;
+                            default:
+                                throw new Error('Unsupported format');
                         }
-
-                        // Upload to server with error handling
-                        let uploadResult;
-                        try {
-                            console.log('Starting upload, size:', Math.round(base64.length / 1024), 'KB');
-                            uploadResult = await api.post('/pdf/upload', {
-                                file_data: base64,
-                                filename: file.name
-                            });
-                            console.log('Upload result:', uploadResult);
-                        } catch (uploadErr) {
-                            console.error('Upload error:', uploadErr);
-                            alert('Upload failed: ' + (uploadErr.message || 'Network error. File may be too large.'));
-                            setUploading(false);
-                            setProcessing(false);
-                            setUploadStatus('');
-                            return;
-                        }
-
-                        if (uploadResult?.id) {
-                            // Note if there was a storage warning (file storage optional)
-                            if (uploadResult.storage_warning) {
-                                console.log('Storage warning (non-blocking):', uploadResult.storage_warning);
-                            }
-
-                            // Extract text based on file type
-                            setProcessing(true);
-                            setUploadStatus('Extracting text...');
-                            let pagesText = [];
-
-                            try {
-                                switch (ext) {
-                                    case 'pdf':
-                                        pagesText = await extractPdfText(file);
-                                        break;
-                                    case 'txt':
-                                    case 'md':
-                                        pagesText = await extractTxtText(file);
-                                        break;
-                                    case 'docx':
-                                        pagesText = await extractDocxText(file);
-                                        break;
-                                    case 'doc':
-                                        // Old .doc format - try as text or show warning
-                                        alert('Old .doc format may not extract perfectly. Consider converting to .docx for best results.');
-                                        pagesText = await extractTxtText(file);
-                                        break;
-                                    case 'rtf':
-                                        pagesText = await extractRtfText(file);
-                                        break;
-                                    case 'odt':
-                                        pagesText = await extractOdtText(file);
-                                        break;
-                                    case 'xlsx':
-                                    case 'xls':
-                                    case 'ods':
-                                        pagesText = await extractXlsxText(file);
-                                        break;
-                                    case 'csv':
-                                        pagesText = await extractCsvText(file);
-                                        break;
-                                    case 'pptx':
-                                        pagesText = await extractPptxText(file);
-                                        break;
-                                    case 'ppt':
-                                        alert('Old .ppt format may not extract perfectly. Consider converting to .pptx for best results.');
-                                        pagesText = await extractTxtText(file);
-                                        break;
-                                    case 'odp':
-                                        pagesText = await extractOdpText(file);
-                                        break;
-                                    case 'epub':
-                                        pagesText = await extractEpubText(file);
-                                        break;
-                                    case 'html':
-                                    case 'htm':
-                                        pagesText = await extractHtmlText(file);
-                                        break;
-                                    case 'json':
-                                        pagesText = await extractJsonText(file);
-                                        break;
-                                    case 'xml':
-                                        pagesText = await extractXmlText(file);
-                                        break;
-                                    default:
-                                        throw new Error('Unsupported format');
-                                }
-                            } catch (extractErr) {
-                                alert('Error extracting text: ' + extractErr.message);
-                                setUploading(false);
-                                setProcessing(false);
-                                setUploadStatus('');
-                                return;
-                            }
-
-                            // Send to server for embedding
-                            setUploadStatus(`Creating embeddings (${pagesText.length} sections)...`);
-                            // If apiKey is '__USE_STORED_KEY__', tell server to use stored key from ai_settings
-                            const processResult = await api.post('/pdf/process', {
-                                document_id: uploadResult.id,
-                                openai_api_key: apiKey === '__USE_STORED_KEY__' ? null : apiKey,
-                                use_stored_key: apiKey === '__USE_STORED_KEY__',
-                                pages_text: pagesText
-                            });
-
-                            if (processResult?.success) {
-                                // Refresh documents list
-                                const docs = await api.get('/pdf/documents');
-                                setDocuments(docs || []);
-                                // Auto-select the new document
-                                setSelectedDocs(prev => [...prev, uploadResult.id]);
-                                let successMsg = `Document processed successfully! ${processResult.chunks_created} chunks created from ${processResult.pages_processed} sections.`;
-                                if (uploadResult.storage_warning) {
-                                    successMsg += '\n\nNote: File storage unavailable (PDF preview disabled), but RAG chat works normally.';
-                                }
-                                alert(successMsg);
-                            } else {
-                                alert('Failed to process document: ' + (processResult?.error || 'Unknown error'));
-                            }
-                        } else {
-                            alert('Failed to upload document: ' + (uploadResult?.error || 'Unknown error'));
-                        }
+                    } catch (extractErr) {
+                        alert('Error extracting text: ' + extractErr.message);
                         setUploading(false);
                         setProcessing(false);
                         setUploadStatus('');
-                    };
-                    reader.readAsDataURL(file);
+                        return;
+                    }
+
+                    // Send to server for embedding
+                    setUploadStatus(`Creating embeddings (${pagesText.length} sections)...`);
+                    const processResult = await api.post('/pdf/process', {
+                        document_id: docId,
+                        openai_api_key: apiKey === '__USE_STORED_KEY__' ? null : apiKey,
+                        use_stored_key: apiKey === '__USE_STORED_KEY__',
+                        pages_text: pagesText
+                    });
+
+                    if (processResult?.success) {
+                        // Refresh documents list
+                        const docs = await api.get('/pdf/documents');
+                        setDocuments(docs || []);
+                        // Auto-select the new document
+                        setSelectedDocs(prev => [...prev, docId]);
+                        let successMsg = `Document processed successfully! ${processResult.chunks_created} chunks created from ${processResult.pages_processed} sections.`;
+                        if (storageError) {
+                            successMsg += '\n\nNote: File storage unavailable (PDF preview disabled), but RAG chat works normally.';
+                        }
+                        alert(successMsg);
+                    } else {
+                        alert('Failed to process document: ' + (processResult?.error || 'Unknown error'));
+                    }
+
                 } catch (err) {
+                    console.error('Upload error:', err);
                     alert('Error: ' + err.message);
+                } finally {
                     setUploading(false);
                     setProcessing(false);
                     setUploadStatus('');

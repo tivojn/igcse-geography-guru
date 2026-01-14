@@ -1005,7 +1005,42 @@ Return ONLY a JSON array with this format:
             self._json_response(200, {"success": True, "data": result})
             return
 
-        # Upload PDF and create document record
+        # Create document record only (file uploaded directly to Supabase from browser)
+        if '/pdf/create-record' in path:
+            doc_id = body.get('id')
+            filename = body.get('filename', 'document.pdf')
+            original_filename = body.get('original_filename', filename)
+            storage_path = body.get('storage_path', '')
+            file_size = body.get('file_size', 0)
+
+            if not doc_id:
+                self._json_response(400, {"error": "Missing document id"})
+                return
+
+            try:
+                doc_data = {
+                    'id': doc_id,
+                    'filename': filename,
+                    'original_filename': original_filename,
+                    'storage_path': storage_path,
+                    'file_size': file_size,
+                    'status': 'pending'
+                }
+                doc_result = supabase_post('pdf_documents', doc_data)
+
+                if doc_result and not doc_result.get('error'):
+                    doc = doc_result[0] if isinstance(doc_result, list) else doc_result
+                    doc['public_url'] = get_public_url('pdfs', storage_path) if storage_path else ''
+                    self._json_response(200, doc)
+                else:
+                    db_error = doc_result.get('error') if doc_result else 'Unknown DB error'
+                    self._json_response(500, {"error": f"Failed to create document record: {db_error}"})
+                return
+            except Exception as e:
+                self._json_response(500, {"error": f"Create record error: {str(e)}"})
+                return
+
+        # Upload PDF and create document record (legacy - for small files via base64)
         if '/pdf/upload' in path:
             # Expect base64-encoded PDF data
             pdf_base64 = body.get('file_data', '')
