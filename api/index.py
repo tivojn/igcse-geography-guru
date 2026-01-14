@@ -952,7 +952,7 @@ class handler(BaseHTTPRequestHandler):
 
             query_embedding = emb_result['embedding']
 
-            # Search chunks
+            # Search chunks - try RPC first
             search_params = {
                 'query_embedding': query_embedding,
                 'match_count': limit
@@ -960,11 +960,21 @@ class handler(BaseHTTPRequestHandler):
             if doc_id:
                 search_params['filter_document_id'] = doc_id
 
-            chunks = supabase_rpc('search_pdf_chunks', search_params)
+            rpc_result = supabase_rpc('search_pdf_chunks', search_params)
+            used_rpc = True
+            rpc_error = None
 
             # If RPC fails, use fallback
-            if not chunks or isinstance(chunks, dict):
+            if not rpc_result or isinstance(rpc_result, dict):
+                used_rpc = False
+                rpc_error = str(rpc_result) if isinstance(rpc_result, dict) else 'empty response'
+                # Try fallback - but first check how many chunks we can fetch
+                all_chunks_raw = supabase_get('pdf_chunks', {'select': 'id,embedding', 'limit': '1000'})
+                chunks_with_emb = len([c for c in (all_chunks_raw or []) if c.get('embedding')])
                 chunks = search_chunks_fallback(query_embedding, limit, doc_id)
+            else:
+                chunks = rpc_result
+                chunks_with_emb = None
 
             # Format results with full debug info
             results = []
@@ -978,10 +988,18 @@ class handler(BaseHTTPRequestHandler):
                     'document_id': chunk.get('document_id')
                 })
 
+            debug_info = {
+                'used_rpc': used_rpc,
+                'rpc_error': rpc_error,
+                'fallback_chunks_with_embedding': chunks_with_emb,
+                'embedding_length': len(query_embedding) if query_embedding else 0
+            }
+
             self._json_response(200, {
                 'query': query,
                 'document_id': doc_id,
                 'total_results': len(results),
+                'debug': debug_info,
                 'results': results
             })
             return
