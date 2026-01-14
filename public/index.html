@@ -2728,6 +2728,8 @@
                         [`${provider}_api_key`]: '•'.repeat(20) + apiKey.slice(-4)
                     }));
                     if (result.models) {
+                        console.log(`[AI Settings] ${provider} models received:`, result.models.length, 'models');
+                        console.log(`[AI Settings] ${provider} model list:`, result.models.map(m => m.id).join(', '));
                         setModels(prev => ({ ...prev, [provider]: result.models }));
                     }
                     alert(`✅ ${provider.charAt(0).toUpperCase() + provider.slice(1)} API key validated and saved!`);
@@ -2753,11 +2755,15 @@
                 try {
                     // Call the dynamic models endpoint
                     const data = await api.get(`/ai/models/${provider}`);
+                    console.log(`[AI Settings] Reload ${provider} models response:`, data);
                     if (data?.models?.length > 0) {
+                        console.log(`[AI Settings] Reload ${provider} - ${data.models.length} models:`, data.models.map(m => m.id).join(', '));
                         setModels(prev => ({ ...prev, [provider]: data.models }));
+                    } else {
+                        console.log(`[AI Settings] Reload ${provider} - no models returned, keeping current list`);
                     }
                 } catch (err) {
-                    console.error('Failed to reload models:', err);
+                    console.error('[AI Settings] Failed to reload models:', err);
                 }
                 setReloading(prev => ({ ...prev, [provider]: false }));
             };
@@ -3802,6 +3808,11 @@
                         }
 
                         if (uploadResult?.id) {
+                            // Note if there was a storage warning (file storage optional)
+                            if (uploadResult.storage_warning) {
+                                console.log('Storage warning (non-blocking):', uploadResult.storage_warning);
+                            }
+
                             // Extract text based on file type
                             setProcessing(true);
                             setUploadStatus('Extracting text...');
@@ -3888,7 +3899,11 @@
                                 setDocuments(docs || []);
                                 // Auto-select the new document
                                 setSelectedDocs(prev => [...prev, uploadResult.id]);
-                                alert(`Document processed successfully! ${processResult.chunks_created} chunks created from ${processResult.pages_processed} sections.`);
+                                let successMsg = `Document processed successfully! ${processResult.chunks_created} chunks created from ${processResult.pages_processed} sections.`;
+                                if (uploadResult.storage_warning) {
+                                    successMsg += '\n\nNote: File storage unavailable (PDF preview disabled), but RAG chat works normally.';
+                                }
+                                alert(successMsg);
                             } else {
                                 alert('Failed to process document: ' + (processResult?.error || 'Unknown error'));
                             }

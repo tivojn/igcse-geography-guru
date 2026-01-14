@@ -106,43 +106,71 @@ def validate_openai_key(api_key):
     headers = {'Authorization': f'Bearer {api_key}'}
     req = urllib.request.Request(url, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=15) as response:
             data = json.loads(response.read().decode('utf-8'))
-            # Filter to chat models only
+            all_models = data.get('data', [])
+            print(f"[OpenAI] Total models from API: {len(all_models)}")
+
+            # Filter to chat-capable models
             chat_models = []
-            for m in data.get('data', []):
+            exclude_patterns = ['whisper', 'tts', 'dall-e', 'embedding', 'moderation',
+                               'instruct', 'audio', 'realtime', 'search', 'similarity',
+                               'code-', 'text-', 'davinci', 'curie', 'babbage', 'ada']
+            include_patterns = ['gpt-', 'o1', 'o3', 'o4', 'chatgpt']
+
+            for m in all_models:
                 mid = m.get('id', '')
-                # Include all GPT models (gpt-3.5, gpt-4, gpt-5, etc.) and o-series
-                if any(x in mid for x in ['gpt-4', 'gpt-3.5', 'gpt-5', 'o1', 'o3', 'o4']):
-                    if 'instruct' not in mid and 'audio' not in mid and 'realtime' not in mid:
+                # Include if matches chat model patterns
+                if any(p in mid.lower() for p in include_patterns):
+                    # Exclude non-chat models
+                    if not any(ex in mid.lower() for ex in exclude_patterns):
                         chat_models.append({"id": mid, "name": mid})
-            # Sort and deduplicate, prioritize newer models
-            chat_models.sort(key=lambda x: x['id'], reverse=True)
-            # Add friendly names for common models
+
+            print(f"[OpenAI] Chat models after filter: {len(chat_models)}")
+
+            # Sort: newer/better models first (o-series, then gpt-4o, then gpt-4, etc.)
+            def sort_key(m):
+                mid = m['id']
+                if mid.startswith('o3'): return (0, mid)
+                if mid.startswith('o1'): return (1, mid)
+                if 'gpt-4o' in mid: return (2, mid)
+                if 'gpt-4' in mid: return (3, mid)
+                if 'gpt-3.5' in mid: return (4, mid)
+                return (5, mid)
+
+            chat_models.sort(key=sort_key)
+
+            # Add friendly names
             friendly = {
-                'gpt-5': 'GPT-5 (Latest)',
-                'gpt-5.2': 'GPT-5.2',
-                'gpt-5-turbo': 'GPT-5 Turbo',
-                'gpt-4o': 'GPT-4o',
-                'gpt-4o-mini': 'GPT-4o Mini (Fast)',
+                'gpt-4o': 'GPT-4o (Flagship)',
+                'gpt-4o-mini': 'GPT-4o Mini (Fast & Cheap)',
+                'gpt-4o-2024-11-20': 'GPT-4o (Nov 2024)',
+                'gpt-4o-2024-08-06': 'GPT-4o (Aug 2024)',
                 'gpt-4-turbo': 'GPT-4 Turbo',
+                'gpt-4-turbo-preview': 'GPT-4 Turbo Preview',
                 'gpt-4': 'GPT-4',
                 'gpt-3.5-turbo': 'GPT-3.5 Turbo',
+                'gpt-3.5-turbo-0125': 'GPT-3.5 Turbo (Jan 2025)',
                 'o1': 'o1 (Reasoning)',
-                'o1-mini': 'o1 Mini',
+                'o1-mini': 'o1 Mini (Fast Reasoning)',
                 'o1-preview': 'o1 Preview',
-                'o3': 'o3 (Advanced Reasoning)',
+                'o3': 'o3 (Advanced)',
                 'o3-mini': 'o3 Mini',
-                'o4-mini': 'o4 Mini',
+                'chatgpt-4o-latest': 'ChatGPT-4o Latest',
             }
             for m in chat_models:
                 if m['id'] in friendly:
                     m['name'] = friendly[m['id']]
-            return {"valid": True, "models": chat_models[:20] if chat_models else OPENAI_MODELS}
+
+            # Return up to 25 models
+            final_models = chat_models[:25] if chat_models else OPENAI_MODELS
+            print(f"[OpenAI] Returning {len(final_models)} models: {[m['id'] for m in final_models]}")
+            return {"valid": True, "models": final_models}
     except urllib.error.HTTPError as e:
         if e.code == 401:
             return {"valid": False, "error": "Invalid API key"}
-        return {"valid": False, "error": f"Error: {e.code}"}
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        return {"valid": False, "error": f"HTTP {e.code}: {error_body[:200]}"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
 
@@ -991,23 +1019,30 @@ Return ONLY a JSON array with this format:
                 # Decode base64
                 pdf_data = base64.b64decode(pdf_base64)
 
-                # Generate unique filename
+                # Generate unique document ID
                 doc_id = str(uuid.uuid4())
-                storage_path = f"{doc_id}/{filename}"
+                # Sanitize filename for storage path (remove special chars)
+                safe_filename = re.sub(r'[^\w\-_.]', '_', filename)
+                storage_path = f"{doc_id}/{safe_filename}"
 
-                # Upload to Supabase storage
-                upload_result = upload_to_supabase_storage('pdfs', storage_path, pdf_data)
+                # Try to upload to Supabase storage (optional - don't fail if storage unavailable)
+                storage_success = False
+                storage_error = None
+                try:
+                    upload_result = upload_to_supabase_storage('pdfs', storage_path, pdf_data)
+                    storage_success = upload_result.get('success', False)
+                    if not storage_success:
+                        storage_error = upload_result.get('error', 'Unknown storage error')
+                except Exception as storage_exc:
+                    storage_error = str(storage_exc)
 
-                if not upload_result.get('success'):
-                    self._json_response(500, {"error": f"Upload failed: {upload_result.get('error')}"})
-                    return
-
-                # Create document record
+                # Create document record even if storage fails
+                # (We can still process text extracted client-side)
                 doc_data = {
                     'id': doc_id,
-                    'filename': filename,
+                    'filename': safe_filename,
                     'original_filename': filename,
-                    'storage_path': storage_path,
+                    'storage_path': storage_path if storage_success else '',
                     'file_size': len(pdf_data),
                     'status': 'pending'
                 }
@@ -1015,12 +1050,17 @@ Return ONLY a JSON array with this format:
 
                 if doc_result and not doc_result.get('error'):
                     doc = doc_result[0] if isinstance(doc_result, list) else doc_result
-                    doc['public_url'] = get_public_url('pdfs', storage_path)
+                    doc['public_url'] = get_public_url('pdfs', storage_path) if storage_success else ''
+                    doc['storage_warning'] = storage_error if storage_error else None
                     self._json_response(200, doc)
                 else:
-                    self._json_response(500, {"error": "Failed to create document record"})
+                    db_error = doc_result.get('error') if doc_result else 'Unknown DB error'
+                    self._json_response(500, {"error": f"Failed to create document record: {db_error}"})
                 return
 
+            except base64.binascii.Error as e:
+                self._json_response(400, {"error": f"Invalid file data (base64 decode failed): {str(e)}"})
+                return
             except Exception as e:
                 self._json_response(500, {"error": f"Upload error: {str(e)}"})
                 return
