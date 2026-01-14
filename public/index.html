@@ -3793,7 +3793,7 @@
 
                     try {
                         const { data: uploadData, error: uploadError } = await supabaseClient.storage
-                            .from('pdfs')
+                            .from('documents')
                             .upload(storagePath, file, {
                                 cacheControl: '3600',
                                 upsert: true

@@ -717,7 +717,7 @@ class handler(BaseHTTPRequestHandler):
             docs = supabase_get('pdf_documents', {'select': '*', 'order': 'created_at.desc'})
             # Add public URLs
             for doc in docs:
-                doc['public_url'] = get_public_url('pdfs', doc.get('storage_path', ''))
+                doc['public_url'] = get_public_url('documents', doc.get('storage_path', ''))
             self._json_response(200, docs)
             return
 
@@ -727,7 +727,7 @@ class handler(BaseHTTPRequestHandler):
             docs = supabase_get('pdf_documents', {'id': f'eq.{doc_id}'})
             if docs:
                 doc = docs[0]
-                doc['public_url'] = get_public_url('pdfs', doc.get('storage_path', ''))
+                doc['public_url'] = get_public_url('documents', doc.get('storage_path', ''))
                 self._json_response(200, doc)
             else:
                 self._json_response(404, {"error": "Document not found"})
@@ -1030,7 +1030,7 @@ Return ONLY a JSON array with this format:
 
                 if doc_result and not doc_result.get('error'):
                     doc = doc_result[0] if isinstance(doc_result, list) else doc_result
-                    doc['public_url'] = get_public_url('pdfs', storage_path) if storage_path else ''
+                    doc['public_url'] = get_public_url('documents', storage_path) if storage_path else ''
                     self._json_response(200, doc)
                 else:
                     db_error = doc_result.get('error') if doc_result else 'Unknown DB error'
@@ -1064,7 +1064,7 @@ Return ONLY a JSON array with this format:
                 storage_success = False
                 storage_error = None
                 try:
-                    upload_result = upload_to_supabase_storage('pdfs', storage_path, pdf_data)
+                    upload_result = upload_to_supabase_storage('documents', storage_path, pdf_data)
                     storage_success = upload_result.get('success', False)
                     if not storage_success:
                         storage_error = upload_result.get('error', 'Unknown storage error')
@@ -1085,7 +1085,7 @@ Return ONLY a JSON array with this format:
 
                 if doc_result and not doc_result.get('error'):
                     doc = doc_result[0] if isinstance(doc_result, list) else doc_result
-                    doc['public_url'] = get_public_url('pdfs', storage_path) if storage_success else ''
+                    doc['public_url'] = get_public_url('documents', storage_path) if storage_success else ''
                     doc['storage_warning'] = storage_error if storage_error else None
                     self._json_response(200, doc)
                 else:
