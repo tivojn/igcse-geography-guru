@@ -1704,8 +1704,8 @@ Return ONLY a JSON array with this format:
                                 all_chunks = fallback_chunks
                                 debug_info['used_fallback'] = True
 
-                # Sort by similarity and take top results (increased to 12 to capture more relevant pages)
-                all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:12]
+                # Sort by similarity and take top results
+                all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:10]
 
                 # Build context from similar chunks
                 context_parts = []
