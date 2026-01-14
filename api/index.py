@@ -512,6 +512,14 @@ class handler(BaseHTTPRequestHandler):
         auth = self.headers.get('Authorization', '').replace('Bearer ', '')
         return sessions.get(auth)
 
+    def _get_query_param(self, param_name):
+        """Extract query parameter from URL"""
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        values = params.get(param_name, [])
+        return values[0] if values else None
+
     def do_OPTIONS(self):
         self.send_response(200)
         self._cors_headers()
