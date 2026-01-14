@@ -9,6 +9,14 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+    <!-- Document parsing libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -599,10 +607,348 @@
             );
         }
 
+        // ============================================================================
+        // RAG Query Modal - Reusable "Talk to Documents" component
+        // Can be used across Sample Exam Questions, Tips, Definitions, etc.
+        // ============================================================================
+        function RAGQueryModal({ isOpen, onClose, context, contextType }) {
+            const [documents, setDocuments] = useState([]);
+            const [selectedDocs, setSelectedDocs] = useState([]);
+            const [userQuestion, setUserQuestion] = useState('');
+            const [loading, setLoading] = useState(true);
+            const [querying, setQuerying] = useState(false);
+            const [result, setResult] = useState(null);
+            const [settings, setSettings] = useState(null);
+            const [showDocViewer, setShowDocViewer] = useState(false);
+            const [viewingDoc, setViewingDoc] = useState(null);
+            const [viewerPage, setViewerPage] = useState(1);
+
+            // Context type labels
+            const contextLabels = {
+                'sample_question': 'Sample Exam Question',
+                'tip': 'Study Tip',
+                'common_error': 'Common Error',
+                'definition': 'Definition',
+                'case_study': 'Case Study',
+                'general': 'Content'
+            };
+
+            // Load documents and settings on open (use ai_settings for API keys - same as main Settings)
+            useEffect(() => {
+                if (isOpen) {
+                    setLoading(true);
+                    setResult(null);
+                    Promise.all([
+                        api.get('/pdf/documents'),
+                        api.get('/ai/settings')
+                    ]).then(([docs, aiSettingsData]) => {
+                        const readyDocs = (docs || []).filter(d => d.status === 'ready');
+                        setDocuments(readyDocs);
+                        setSettings(aiSettingsData?.settings || {});
+                        // Auto-select all ready documents
+                        setSelectedDocs(readyDocs.map(d => d.id));
+                        setLoading(false);
+                    });
+                }
+            }, [isOpen]);
+
+            const toggleDoc = (docId) => {
+                setSelectedDocs(prev =>
+                    prev.includes(docId)
+                        ? prev.filter(id => id !== docId)
+                        : [...prev, docId]
+                );
+            };
+
+            const selectAll = () => setSelectedDocs(documents.map(d => d.id));
+            const deselectAll = () => setSelectedDocs([]);
+
+            const handleSubmit = async () => {
+                if (selectedDocs.length === 0) {
+                    alert('Please select at least one document');
+                    return;
+                }
+
+                // Check if OpenAI key is validated (api key exists and is validated)
+                const hasValidKey = settings?.openai_api_key && settings?.openai_validated;
+                if (!hasValidKey) {
+                    alert('Please configure your OpenAI API key in the main Settings page first (go to Settings > AI Providers > OpenAI)');
+                    return;
+                }
+
+                setQuerying(true);
+                setResult(null);
+
+                try {
+                    // Build the query - combine context with optional user question
+                    let query = '';
+                    if (contextType === 'sample_question') {
+                        query = `Regarding this exam question and answer:\n\nQuestion: ${context.question}\n\nStudent Answer: ${context.answer}\n\nTeacher Comments: ${context.comments}`;
+                    } else if (contextType === 'tip') {
+                        query = `Regarding this study tip:\n\n${context.text}`;
+                    } else if (contextType === 'common_error') {
+                        query = `Regarding this common error:\n\nError: ${context.error}\n\nWhy it's wrong: ${context.explanation}`;
+                    } else if (contextType === 'definition') {
+                        query = `Regarding this term and definition:\n\n${context.term}: ${context.definition}`;
+                    } else {
+                        query = context.text || context;
+                    }
+
+                    if (userQuestion.trim()) {
+                        query += `\n\nUser's Question: ${userQuestion}`;
+                    } else {
+                        query += `\n\nPlease provide more context, examples, and explanation from the study materials.`;
+                    }
+
+                    // Use stored keys from main Settings
+                    const defaultProvider = settings?.default_provider || 'openai';
+                    const response = await api.post('/rag/chat', {
+                        question: query,
+                        document_ids: selectedDocs,
+                        use_stored_key: true,  // Use stored key from ai_settings
+                        llm_provider: defaultProvider,
+                        llm_model: settings?.[`${defaultProvider}_model`] || 'gpt-4o-mini'
+                    });
+
+                    if (response?.answer) {
+                        setResult({
+                            answer: response.answer,
+                            sources: response.sources || []
+                        });
+                    } else {
+                        setResult({
+                            answer: 'Sorry, I could not find relevant information. ' + (response?.error || ''),
+                            sources: []
+                        });
+                    }
+                } catch (err) {
+                    setResult({
+                        answer: 'Error: ' + err.message,
+                        sources: []
+                    });
+                }
+
+                setQuerying(false);
+            };
+
+            const openDocAtPage = (source) => {
+                const doc = documents.find(d => d.id === source.document_id);
+                if (doc?.public_url) {
+                    setViewingDoc(doc);
+                    setViewerPage(source.page_number || 1);
+                    setShowDocViewer(true);
+                }
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl w-11/12 max-w-4xl max-h-[90vh] flex flex-col shadow-2xl">
+                        {/* Header */}
+                        <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-green-500 to-teal-500 rounded-t-xl">
+                            <div>
+                                <h3 className="text-xl font-bold text-white">📚 Talk to Documents</h3>
+                                <p className="text-green-100 text-sm">
+                                    Get more context from your study materials
+                                </p>
+                            </div>
+                            <button
+                                onClick={onClose}
+                                className="text-white hover:text-green-200 text-2xl"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {loading ? (
+                                <div className="text-center py-8">Loading documents...</div>
+                            ) : documents.length === 0 ? (
+                                <div className="text-center py-8">
+                                    <span className="text-4xl">📄</span>
+                                    <p className="mt-2 text-gray-500">No documents uploaded yet.</p>
+                                    <p className="text-sm text-gray-400 mt-1">
+                                        Go to Document Chat to upload your study guides first.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {/* Context Preview */}
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                        <p className="text-xs font-medium text-amber-700 mb-1">
+                                            {contextLabels[contextType] || 'Context'}:
+                                        </p>
+                                        <p className="text-sm text-gray-700 line-clamp-3">
+                                            {contextType === 'sample_question' ? context.question :
+                                             contextType === 'tip' ? context.text :
+                                             contextType === 'common_error' ? context.error :
+                                             contextType === 'definition' ? `${context.term}: ${context.definition}` :
+                                             (context.text || String(context)).substring(0, 200)}...
+                                        </p>
+                                    </div>
+
+                                    {/* Document Selection */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <p className="font-medium text-gray-700">Select documents to search:</p>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={selectAll}
+                                                    className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+                                                >
+                                                    Select All
+                                                </button>
+                                                <button
+                                                    onClick={deselectAll}
+                                                    className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+                                                >
+                                                    Deselect
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border rounded-lg p-2 bg-gray-50">
+                                            {documents.map(doc => (
+                                                <label
+                                                    key={doc.id}
+                                                    className={`flex items-center gap-2 p-2 rounded cursor-pointer transition ${
+                                                        selectedDocs.includes(doc.id)
+                                                            ? 'bg-green-100 border border-green-300'
+                                                            : 'bg-white border border-gray-200 hover:bg-gray-100'
+                                                    }`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedDocs.includes(doc.id)}
+                                                        onChange={() => toggleDoc(doc.id)}
+                                                        className="h-4 w-4 text-green-600 rounded"
+                                                    />
+                                                    <span className="text-sm truncate">{doc.original_filename}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            {selectedDocs.length} of {documents.length} selected
+                                        </p>
+                                    </div>
+
+                                    {/* Optional User Question */}
+                                    <div>
+                                        <p className="font-medium text-gray-700 mb-2">
+                                            Your question (optional):
+                                        </p>
+                                        <textarea
+                                            value={userQuestion}
+                                            onChange={(e) => setUserQuestion(e.target.value)}
+                                            placeholder="Leave blank for general context, or ask a specific question..."
+                                            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                                            rows={2}
+                                        />
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <button
+                                        onClick={handleSubmit}
+                                        disabled={querying || selectedDocs.length === 0}
+                                        className="w-full py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
+                                    >
+                                        {querying ? '🔍 Searching documents...' : '🔍 Search Study Materials'}
+                                    </button>
+
+                                    {/* Result */}
+                                    {result && (
+                                        <div className="mt-4 border-t pt-4">
+                                            <h4 className="font-medium text-gray-700 mb-2">📖 From your study materials:</h4>
+                                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                                <p className="text-gray-800 whitespace-pre-wrap">{result.answer}</p>
+
+                                                {/* Source Citations */}
+                                                {result.sources?.length > 0 && (
+                                                    <div className="mt-3 pt-3 border-t border-blue-200">
+                                                        <p className="text-xs font-medium text-blue-700 mb-2">📍 Sources (click to view):</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {result.sources.map((s, idx) => (
+                                                                <button
+                                                                    key={idx}
+                                                                    onClick={() => openDocAtPage(s)}
+                                                                    className="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200 transition flex items-center gap-1"
+                                                                    title={s.content}
+                                                                >
+                                                                    <span>📄</span>
+                                                                    <span className="truncate max-w-[120px]">
+                                                                        {s.document_name || 'Doc'}
+                                                                    </span>
+                                                                    <span className="font-medium">p.{s.page_number}</span>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-3 border-t bg-gray-50 rounded-b-xl">
+                            <p className="text-xs text-gray-500 text-center">
+                                Powered by RAG • Searches your uploaded study materials
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Document Viewer Sub-Modal */}
+                    {showDocViewer && viewingDoc?.public_url && (
+                        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60]">
+                            <div className="bg-white rounded-xl w-10/12 h-5/6 flex flex-col">
+                                <div className="p-3 border-b flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <h4 className="font-semibold">{viewingDoc.original_filename}</h4>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => setViewerPage(Math.max(1, viewerPage - 1))}
+                                                className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                            >
+                                                ←
+                                            </button>
+                                            <span className="text-sm">Page {viewerPage}</span>
+                                            <button
+                                                onClick={() => setViewerPage(viewerPage + 1)}
+                                                className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                            >
+                                                →
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowDocViewer(false)}
+                                        className="text-gray-500 hover:text-gray-700 text-xl"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-auto p-2">
+                                    <iframe
+                                        src={`${viewingDoc.public_url}#page=${viewerPage}`}
+                                        className="w-full h-full border rounded"
+                                        title="Document Viewer"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         // Navigation Component
         function Navigation({ user, currentView, setCurrentView, onLogout }) {
             const navItems = [
                 { id: 'topics', label: 'Topics', icon: '📚' },
+                { id: 'pdf-chat', label: 'Document Chat', icon: '📄' },
                 { id: 'progress', label: 'Progress', icon: '📊' },
                 { id: 'weak-points', label: 'Weak Points', icon: '🎯' },
                 { id: 'settings', label: 'Settings', icon: '⚙️' }
@@ -1432,19 +1778,35 @@
         // Exam Practice Tab Component - Shows exam questions with model answers for this topic
         function ExamPracticeTab({ topicId, topicName }) {
             const [questions, setQuestions] = useState([]);
+            const [sampleAnswers, setSampleAnswers] = useState([]);
             const [loading, setLoading] = useState(true);
             const [expandedId, setExpandedId] = useState(null);
+            const [expandedSampleId, setExpandedSampleId] = useState(null);
+            // RAG Modal state
+            const [ragModalOpen, setRagModalOpen] = useState(false);
+            const [ragContext, setRagContext] = useState(null);
+            const [ragContextType, setRagContextType] = useState('general');
+
+            const openRAGModal = (context, type) => {
+                setRagContext(context);
+                setRagContextType(type);
+                setRagModalOpen(true);
+            };
 
             useEffect(() => {
-                api.get(`/exam-questions/${topicId}`).then(data => {
-                    setQuestions(data || []);
+                Promise.all([
+                    api.get(`/exam-questions/${topicId}`),
+                    api.get(`/sample-answers/${topicId}`)
+                ]).then(([questionsData, sampleData]) => {
+                    setQuestions(questionsData || []);
+                    setSampleAnswers(sampleData || []);
                     setLoading(false);
                 });
             }, [topicId]);
 
             if (loading) return <div className="text-center py-8">Loading exam questions...</div>;
 
-            if (questions.length === 0) {
+            if (questions.length === 0 && sampleAnswers.length === 0) {
                 return (
                     <div className="text-center py-12">
                         <span className="text-6xl">📝</span>
@@ -1454,51 +1816,158 @@
             }
 
             return (
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-lg font-semibold text-gray-800">
-                            📝 Exam-Style Questions ({questions.length})
-                        </h3>
-                    </div>
-
-                    {questions.map((q, index) => (
-                        <div key={q.id} className="border rounded-xl overflow-hidden bg-white shadow-sm">
-                            <div
-                                className="p-4 cursor-pointer hover:bg-gray-50 transition"
-                                onClick={() => setExpandedId(expandedId === q.id ? null : q.id)}
-                            >
-                                <div className="flex items-start justify-between">
-                                    <div className="flex-grow">
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm font-medium">
-                                                {q.marks} marks
-                                            </span>
-                                            {q.command_word && (
-                                                <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm">
-                                                    {q.command_word}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <p className="text-gray-800 font-medium">{q.question_text}</p>
-                                    </div>
-                                    <span className="text-gray-400 text-xl ml-4">
-                                        {expandedId === q.id ? '▼' : '▶'}
-                                    </span>
-                                </div>
+                <div className="space-y-8">
+                    {/* Exam-Style Questions Section */}
+                    {questions.length > 0 && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-gray-800">
+                                    📝 Exam-Style Questions ({questions.length})
+                                </h3>
                             </div>
 
-                            {expandedId === q.id && (
-                                <div className="border-t bg-green-50 p-4">
-                                    <h4 className="font-semibold text-green-800 mb-2">✅ Model Answer:</h4>
-                                    <p className="text-gray-700 whitespace-pre-line">{q.model_answer}</p>
+                            {questions.map((q, index) => (
+                                <div key={q.id} className="border rounded-xl overflow-hidden bg-white shadow-sm">
+                                    <div
+                                        className="p-4 cursor-pointer hover:bg-gray-50 transition"
+                                        onClick={() => setExpandedId(expandedId === q.id ? null : q.id)}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-grow">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm font-medium">
+                                                        {q.marks} marks
+                                                    </span>
+                                                    {q.command_word && (
+                                                        <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm">
+                                                            {q.command_word}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-gray-800 font-medium">{q.question_text}</p>
+                                            </div>
+                                            <span className="text-gray-400 text-xl ml-4">
+                                                {expandedId === q.id ? '▼' : '▶'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {expandedId === q.id && (
+                                        <div className="border-t bg-green-50 p-4">
+                                            <h4 className="font-semibold text-green-800 mb-2">✅ Model Answer:</h4>
+                                            <p className="text-gray-700 whitespace-pre-line">{q.model_answer}</p>
+                                            <div className="mt-3 pt-3 border-t border-green-200 flex justify-end">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        openRAGModal({
+                                                            question: q.question_text,
+                                                            answer: q.model_answer,
+                                                            comments: ''
+                                                        }, 'sample_question');
+                                                    }}
+                                                    className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600 transition flex items-center gap-1"
+                                                >
+                                                    📚 Talk to Documents
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            ))}
                         </div>
-                    ))}
+                    )}
+
+                    {/* Sample Exam Questions with Student Answers Section */}
+                    {sampleAnswers.length > 0 && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-gray-800">
+                                    📋 Sample Exam Questions with Student Answers ({sampleAnswers.length})
+                                </h3>
+                            </div>
+                            <p className="text-sm text-gray-600 mb-4">
+                                Learn from real student answers and teacher feedback to understand how marks are awarded.
+                            </p>
+
+                            {sampleAnswers.map((sa, index) => (
+                                <div key={sa.id} className="border-2 border-amber-200 rounded-xl overflow-hidden bg-amber-50 shadow-sm">
+                                    <div
+                                        className="p-4 cursor-pointer hover:bg-amber-100 transition"
+                                        onClick={() => setExpandedSampleId(expandedSampleId === sa.id ? null : sa.id)}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex-grow">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className="px-2 py-1 bg-amber-200 text-amber-800 rounded text-sm font-medium">
+                                                        {sa.marks} marks available
+                                                    </span>
+                                                    <span className="px-2 py-1 bg-green-200 text-green-800 rounded text-sm font-medium">
+                                                        {sa.marks_awarded}/{sa.marks} awarded
+                                                    </span>
+                                                    {sa.source_page && (
+                                                        <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded text-xs">
+                                                            {sa.source_page}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-gray-800 font-medium">{sa.question_text}</p>
+                                            </div>
+                                            <span className="text-amber-600 text-xl ml-4">
+                                                {expandedSampleId === sa.id ? '▼' : '▶'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {expandedSampleId === sa.id && (
+                                        <div className="border-t border-amber-300">
+                                            {/* Student Answer */}
+                                            <div className="bg-blue-50 p-4 border-b border-amber-200">
+                                                <h4 className="font-semibold text-blue-800 mb-2">👤 Student's Answer:</h4>
+                                                <p className="text-gray-700 whitespace-pre-line">{sa.student_answer}</p>
+                                            </div>
+
+                                            {/* Teacher Comments */}
+                                            <div className="bg-green-50 p-4">
+                                                <h4 className="font-semibold text-green-800 mb-2">👨‍🏫 Teacher's Comments:</h4>
+                                                <p className="text-gray-700 whitespace-pre-line">{sa.teacher_comments}</p>
+                                                <div className="mt-3 pt-3 border-t border-green-200 flex items-center justify-between">
+                                                    <span className="text-sm font-medium text-green-700">
+                                                        Marks Awarded: {sa.marks_awarded} out of {sa.marks}
+                                                    </span>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openRAGModal({
+                                                                question: sa.question_text,
+                                                                answer: sa.student_answer,
+                                                                comments: sa.teacher_comments
+                                                            }, 'sample_question');
+                                                        }}
+                                                        className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600 transition flex items-center gap-1"
+                                                    >
+                                                        📚 Talk to Documents
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="text-center text-sm text-gray-400 mt-6">
                         Practice these questions to prepare for your exam
                     </div>
+
+                    {/* RAG Query Modal */}
+                    <RAGQueryModal
+                        isOpen={ragModalOpen}
+                        onClose={() => setRagModalOpen(false)}
+                        context={ragContext}
+                        contextType={ragContextType}
+                    />
                 </div>
             );
         }
@@ -1509,6 +1978,16 @@
             const [errors, setErrors] = useState([]);
             const [loading, setLoading] = useState(true);
             const [activeSection, setActiveSection] = useState('tips');
+            // RAG Modal state
+            const [ragModalOpen, setRagModalOpen] = useState(false);
+            const [ragContext, setRagContext] = useState(null);
+            const [ragContextType, setRagContextType] = useState('general');
+
+            const openRAGModal = (context, type) => {
+                setRagContext(context);
+                setRagContextType(type);
+                setRagModalOpen(true);
+            };
 
             useEffect(() => {
                 Promise.all([
@@ -1570,10 +2049,18 @@
                                 tips.map((tip, index) => (
                                     <div key={tip.id} className="flex items-start gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
                                         <span className="text-2xl">💡</span>
-                                        <div>
-                                            <span className="inline-block px-2 py-0.5 bg-green-200 text-green-800 rounded text-xs mb-1">
-                                                {tip.tip_type === 'exam' ? 'Exam Tip' : 'Study Tip'}
-                                            </span>
+                                        <div className="flex-1">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="inline-block px-2 py-0.5 bg-green-200 text-green-800 rounded text-xs">
+                                                    {tip.tip_type === 'exam' ? 'Exam Tip' : 'Study Tip'}
+                                                </span>
+                                                <button
+                                                    onClick={() => openRAGModal({ text: tip.tip_text }, 'tip')}
+                                                    className="px-2 py-1 bg-teal-500 text-white rounded text-xs hover:bg-teal-600 transition flex items-center gap-1"
+                                                >
+                                                    📚 Talk to Docs
+                                                </button>
+                                            </div>
                                             <p className="text-gray-700">{tip.tip_text}</p>
                                         </div>
                                     </div>
@@ -1592,8 +2079,19 @@
                                     <div key={error.id} className="p-4 bg-red-50 rounded-lg border border-red-200">
                                         <div className="flex items-start gap-3">
                                             <span className="text-2xl">⚠️</span>
-                                            <div>
-                                                <p className="text-red-800 font-medium">{error.error_description}</p>
+                                            <div className="flex-1">
+                                                <div className="flex items-start justify-between">
+                                                    <p className="text-red-800 font-medium">{error.error_description}</p>
+                                                    <button
+                                                        onClick={() => openRAGModal({
+                                                            error: error.error_description,
+                                                            explanation: error.why_wrong
+                                                        }, 'common_error')}
+                                                        className="ml-2 px-2 py-1 bg-teal-500 text-white rounded text-xs hover:bg-teal-600 transition flex items-center gap-1 whitespace-nowrap"
+                                                    >
+                                                        📚 Talk to Docs
+                                                    </button>
+                                                </div>
                                                 {error.why_wrong && (
                                                     <p className="text-gray-600 mt-2 text-sm">
                                                         <span className="font-medium">Why it's wrong:</span> {error.why_wrong}
@@ -1606,6 +2104,14 @@
                             )}
                         </div>
                     )}
+
+                    {/* RAG Query Modal */}
+                    <RAGQueryModal
+                        isOpen={ragModalOpen}
+                        onClose={() => setRagModalOpen(false)}
+                        context={ragContext}
+                        contextType={ragContextType}
+                    />
                 </div>
             );
         }
@@ -3122,6 +3628,7 @@
                             />
                         )}
 
+                        {currentView === 'pdf-chat' && <PDFChatView />}
                         {currentView === 'progress' && <ProgressView />}
                         {currentView === 'weak-points' && <WeakPointsView />}
                         {currentView === 'settings' && (
@@ -3135,6 +3642,976 @@
                     <footer className="text-center py-6 text-gray-500 text-sm">
                         <p>IGCSE Geography Guru • Built for exam success 🎓</p>
                     </footer>
+                </div>
+            );
+        }
+
+        // Document Chat View Component - RAG-powered chat with study guide documents
+        function PDFChatView() {
+            const [documents, setDocuments] = useState([]);
+            const [selectedDocs, setSelectedDocs] = useState([]); // Multi-doc selection (array of IDs)
+            const [viewingDoc, setViewingDoc] = useState(null); // For PDF viewer
+            const [messages, setMessages] = useState([]);
+            const [input, setInput] = useState('');
+            const [loading, setLoading] = useState(true);
+            const [uploading, setUploading] = useState(false);
+            const [processing, setProcessing] = useState(false);
+            const [chatLoading, setChatLoading] = useState(false);
+            const [settings, setSettings] = useState(null);
+            const [apiKey, setApiKey] = useState(''); // Holds '__USE_STORED_KEY__' or actual key
+            const [uploadStatus, setUploadStatus] = useState(''); // Detailed upload status
+            const [pdfViewerPage, setPdfViewerPage] = useState(1);
+            const [showPdfViewer, setShowPdfViewer] = useState(false);
+            const messagesEndRef = useRef(null);
+
+            // Load documents and settings (use ai_settings for API keys - same as main Settings)
+            useEffect(() => {
+                Promise.all([
+                    api.get('/pdf/documents'),
+                    api.get('/ai/settings')
+                ]).then(([docs, aiSettingsData]) => {
+                    setDocuments(docs || []);
+                    const settingsObj = aiSettingsData?.settings || {};
+                    setSettings(settingsObj);
+                    // Check if OpenAI key is validated (has masked format with dots)
+                    if (settingsObj?.openai_api_key && settingsObj.openai_validated) {
+                        // Key is validated in main Settings - we'll use it via server-side
+                        setApiKey('__USE_STORED_KEY__');
+                    }
+                    setLoading(false);
+                });
+            }, []);
+
+            // Auto-scroll to bottom of messages
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages]);
+
+            // Clear chat when document selection changes
+            useEffect(() => {
+                // Clear messages when selection changes (multi-doc doesn't have shared history)
+                setMessages([]);
+            }, [selectedDocs]);
+
+            // Helper functions for document selection
+            const toggleDocSelection = (docId) => {
+                setSelectedDocs(prev =>
+                    prev.includes(docId)
+                        ? prev.filter(id => id !== docId)
+                        : [...prev, docId]
+                );
+            };
+
+            const selectAllDocs = () => {
+                const readyDocs = documents.filter(d => d.status === 'ready').map(d => d.id);
+                setSelectedDocs(readyDocs);
+            };
+
+            const deselectAllDocs = () => {
+                setSelectedDocs([]);
+            };
+
+            const getSelectedDocsInfo = () => {
+                return documents.filter(d => selectedDocs.includes(d.id));
+            };
+
+            // Supported file extensions
+            const SUPPORTED_FORMATS = {
+                // Documents
+                'pdf': 'application/pdf',
+                'txt': 'text/plain',
+                'md': 'text/markdown',
+                'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'doc': 'application/msword',
+                'rtf': 'application/rtf',
+                'odt': 'application/vnd.oasis.opendocument.text',
+                // Spreadsheets
+                'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'xls': 'application/vnd.ms-excel',
+                'csv': 'text/csv',
+                'ods': 'application/vnd.oasis.opendocument.spreadsheet',
+                // Presentations
+                'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'ppt': 'application/vnd.ms-powerpoint',
+                'odp': 'application/vnd.oasis.opendocument.presentation',
+                // Other
+                'epub': 'application/epub+zip',
+                'html': 'text/html',
+                'htm': 'text/html',
+                'json': 'application/json',
+                'xml': 'application/xml'
+            };
+
+            const getFileExtension = (filename) => {
+                return filename.split('.').pop().toLowerCase();
+            };
+
+            const handleFileUpload = async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                const ext = getFileExtension(file.name);
+                const supportedExts = Object.keys(SUPPORTED_FORMATS);
+
+                if (!supportedExts.includes(ext)) {
+                    alert(`Unsupported file format. Supported: ${supportedExts.join(', ')}`);
+                    return;
+                }
+
+                if (!apiKey) {
+                    alert('Please configure your OpenAI API key in the main Settings page first (go to Settings > AI Providers > OpenAI)');
+                    return;
+                }
+
+                setUploading(true);
+                setUploadStatus('Reading file...');
+
+                try {
+                    // Read file as base64
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        setUploadStatus('Uploading to server...');
+                        const base64 = event.target.result.split(',')[1];
+
+                        // Upload to server
+                        const uploadResult = await api.post('/pdf/upload', {
+                            file_data: base64,
+                            filename: file.name
+                        });
+
+                        if (uploadResult?.id) {
+                            // Extract text based on file type
+                            setProcessing(true);
+                            setUploadStatus('Extracting text...');
+                            let pagesText = [];
+
+                            try {
+                                switch (ext) {
+                                    case 'pdf':
+                                        pagesText = await extractPdfText(file);
+                                        break;
+                                    case 'txt':
+                                    case 'md':
+                                        pagesText = await extractTxtText(file);
+                                        break;
+                                    case 'docx':
+                                        pagesText = await extractDocxText(file);
+                                        break;
+                                    case 'doc':
+                                        // Old .doc format - try as text or show warning
+                                        alert('Old .doc format may not extract perfectly. Consider converting to .docx for best results.');
+                                        pagesText = await extractTxtText(file);
+                                        break;
+                                    case 'rtf':
+                                        pagesText = await extractRtfText(file);
+                                        break;
+                                    case 'odt':
+                                        pagesText = await extractOdtText(file);
+                                        break;
+                                    case 'xlsx':
+                                    case 'xls':
+                                    case 'ods':
+                                        pagesText = await extractXlsxText(file);
+                                        break;
+                                    case 'csv':
+                                        pagesText = await extractCsvText(file);
+                                        break;
+                                    case 'pptx':
+                                        pagesText = await extractPptxText(file);
+                                        break;
+                                    case 'ppt':
+                                        alert('Old .ppt format may not extract perfectly. Consider converting to .pptx for best results.');
+                                        pagesText = await extractTxtText(file);
+                                        break;
+                                    case 'odp':
+                                        pagesText = await extractOdpText(file);
+                                        break;
+                                    case 'epub':
+                                        pagesText = await extractEpubText(file);
+                                        break;
+                                    case 'html':
+                                    case 'htm':
+                                        pagesText = await extractHtmlText(file);
+                                        break;
+                                    case 'json':
+                                        pagesText = await extractJsonText(file);
+                                        break;
+                                    case 'xml':
+                                        pagesText = await extractXmlText(file);
+                                        break;
+                                    default:
+                                        throw new Error('Unsupported format');
+                                }
+                            } catch (extractErr) {
+                                alert('Error extracting text: ' + extractErr.message);
+                                setUploading(false);
+                                setProcessing(false);
+                                setUploadStatus('');
+                                return;
+                            }
+
+                            // Send to server for embedding
+                            setUploadStatus(`Creating embeddings (${pagesText.length} sections)...`);
+                            // If apiKey is '__USE_STORED_KEY__', tell server to use stored key from ai_settings
+                            const processResult = await api.post('/pdf/process', {
+                                document_id: uploadResult.id,
+                                openai_api_key: apiKey === '__USE_STORED_KEY__' ? null : apiKey,
+                                use_stored_key: apiKey === '__USE_STORED_KEY__',
+                                pages_text: pagesText
+                            });
+
+                            if (processResult?.success) {
+                                // Refresh documents list
+                                const docs = await api.get('/pdf/documents');
+                                setDocuments(docs || []);
+                                // Auto-select the new document
+                                setSelectedDocs(prev => [...prev, uploadResult.id]);
+                                alert(`Document processed successfully! ${processResult.chunks_created} chunks created from ${processResult.pages_processed} sections.`);
+                            } else {
+                                alert('Failed to process document: ' + (processResult?.error || 'Unknown error'));
+                            }
+                        } else {
+                            alert('Failed to upload document: ' + (uploadResult?.error || 'Unknown error'));
+                        }
+                        setUploading(false);
+                        setProcessing(false);
+                        setUploadStatus('');
+                    };
+                    reader.readAsDataURL(file);
+                } catch (err) {
+                    alert('Error: ' + err.message);
+                    setUploading(false);
+                    setProcessing(false);
+                    setUploadStatus('');
+                }
+            };
+
+            // Extract text from PDF using PDF.js
+            const extractPdfText = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const pagesText = [];
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const text = textContent.items.map(item => item.str).join(' ');
+                    pagesText.push({ page_number: i, text });
+                }
+
+                return pagesText;
+            };
+
+            // Extract text from TXT file
+            const extractTxtText = async (file) => {
+                const text = await file.text();
+                // Split into chunks of ~2000 chars to simulate pages
+                const chunkSize = 2000;
+                const pagesText = [];
+                for (let i = 0; i < text.length; i += chunkSize) {
+                    pagesText.push({
+                        page_number: Math.floor(i / chunkSize) + 1,
+                        text: text.slice(i, i + chunkSize)
+                    });
+                }
+                return pagesText;
+            };
+
+            // Extract text from DOCX using Mammoth.js
+            const extractDocxText = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const result = await mammoth.extractRawText({ arrayBuffer });
+                const text = result.value;
+                // Split into chunks to simulate pages
+                const chunkSize = 2000;
+                const pagesText = [];
+                for (let i = 0; i < text.length; i += chunkSize) {
+                    pagesText.push({
+                        page_number: Math.floor(i / chunkSize) + 1,
+                        text: text.slice(i, i + chunkSize)
+                    });
+                }
+                return pagesText;
+            };
+
+            // Extract text from XLSX using SheetJS
+            const extractXlsxText = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                const pagesText = [];
+
+                workbook.SheetNames.forEach((sheetName, index) => {
+                    const sheet = workbook.Sheets[sheetName];
+                    const text = XLSX.utils.sheet_to_txt(sheet);
+                    pagesText.push({
+                        page_number: index + 1,
+                        text: `Sheet: ${sheetName}\n${text}`
+                    });
+                });
+
+                return pagesText;
+            };
+
+            // Extract text from PPTX using JSZip
+            const extractPptxText = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                const pagesText = [];
+
+                // PPTX stores slides in ppt/slides/slide{n}.xml
+                const slideFiles = Object.keys(zip.files)
+                    .filter(name => name.match(/ppt\/slides\/slide\d+\.xml/))
+                    .sort((a, b) => {
+                        const numA = parseInt(a.match(/slide(\d+)/)[1]);
+                        const numB = parseInt(b.match(/slide(\d+)/)[1]);
+                        return numA - numB;
+                    });
+
+                for (let i = 0; i < slideFiles.length; i++) {
+                    const slideXml = await zip.files[slideFiles[i]].async('text');
+                    // Extract text from XML (simple regex approach)
+                    const textMatches = slideXml.match(/<a:t>([^<]*)<\/a:t>/g) || [];
+                    const text = textMatches
+                        .map(match => match.replace(/<\/?a:t>/g, ''))
+                        .join(' ');
+                    pagesText.push({
+                        page_number: i + 1,
+                        text: `Slide ${i + 1}: ${text}`
+                    });
+                }
+
+                return pagesText;
+            };
+
+            // Extract text from EPUB using JSZip
+            const extractEpubText = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                const pagesText = [];
+
+                // Find content files (HTML/XHTML)
+                const contentFiles = Object.keys(zip.files)
+                    .filter(name => name.match(/\.(html|xhtml|htm)$/i))
+                    .sort();
+
+                for (let i = 0; i < contentFiles.length; i++) {
+                    const html = await zip.files[contentFiles[i]].async('text');
+                    // Strip HTML tags to get plain text
+                    const text = html
+                        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                        .replace(/<[^>]+>/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                    if (text.length > 50) { // Only include substantial content
+                        pagesText.push({
+                            page_number: pagesText.length + 1,
+                            text: text
+                        });
+                    }
+                }
+
+                return pagesText;
+            };
+
+            // Extract text from RTF file
+            const extractRtfText = async (file) => {
+                const text = await file.text();
+                // Basic RTF to text conversion - strip RTF control words
+                const plainText = text
+                    .replace(/\{\\[^{}]+\}/g, '') // Remove groups with control words
+                    .replace(/\\[a-z]+\d*\s?/gi, '') // Remove control words
+                    .replace(/[{}]/g, '') // Remove remaining braces
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                const chunkSize = 2000;
+                const pagesText = [];
+                for (let i = 0; i < plainText.length; i += chunkSize) {
+                    pagesText.push({
+                        page_number: Math.floor(i / chunkSize) + 1,
+                        text: plainText.slice(i, i + chunkSize)
+                    });
+                }
+                return pagesText;
+            };
+
+            // Extract text from ODT (OpenDocument Text) using JSZip
+            const extractOdtText = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                const pagesText = [];
+
+                // ODT stores content in content.xml
+                if (zip.files['content.xml']) {
+                    const xml = await zip.files['content.xml'].async('text');
+                    // Extract text from XML
+                    const text = xml
+                        .replace(/<text:p[^>]*>/gi, '\n')
+                        .replace(/<[^>]+>/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                    const chunkSize = 2000;
+                    for (let i = 0; i < text.length; i += chunkSize) {
+                        pagesText.push({
+                            page_number: Math.floor(i / chunkSize) + 1,
+                            text: text.slice(i, i + chunkSize)
+                        });
+                    }
+                }
+
+                return pagesText;
+            };
+
+            // Extract text from CSV file
+            const extractCsvText = async (file) => {
+                const text = await file.text();
+                // Convert CSV to readable format
+                const lines = text.split('\n');
+                const pagesText = [];
+
+                // Group lines into chunks for "pages"
+                const linesPerPage = 50;
+                for (let i = 0; i < lines.length; i += linesPerPage) {
+                    const pageLines = lines.slice(i, i + linesPerPage);
+                    pagesText.push({
+                        page_number: Math.floor(i / linesPerPage) + 1,
+                        text: pageLines.join('\n')
+                    });
+                }
+
+                return pagesText;
+            };
+
+            // Extract text from ODP (OpenDocument Presentation) using JSZip
+            const extractOdpText = async (file) => {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                const pagesText = [];
+
+                if (zip.files['content.xml']) {
+                    const xml = await zip.files['content.xml'].async('text');
+                    // Extract text from draw:frame elements
+                    const textMatches = xml.match(/<text:p[^>]*>([^<]*)<\/text:p>/g) || [];
+                    const allText = textMatches
+                        .map(match => match.replace(/<[^>]+>/g, ''))
+                        .join(' ');
+
+                    const chunkSize = 2000;
+                    for (let i = 0; i < allText.length; i += chunkSize) {
+                        pagesText.push({
+                            page_number: Math.floor(i / chunkSize) + 1,
+                            text: allText.slice(i, i + chunkSize)
+                        });
+                    }
+                }
+
+                return pagesText;
+            };
+
+            // Extract text from HTML file
+            const extractHtmlText = async (file) => {
+                const html = await file.text();
+                const text = html
+                    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                const chunkSize = 2000;
+                const pagesText = [];
+                for (let i = 0; i < text.length; i += chunkSize) {
+                    pagesText.push({
+                        page_number: Math.floor(i / chunkSize) + 1,
+                        text: text.slice(i, i + chunkSize)
+                    });
+                }
+                return pagesText;
+            };
+
+            // Extract text from JSON file
+            const extractJsonText = async (file) => {
+                const text = await file.text();
+                try {
+                    const json = JSON.parse(text);
+                    // Convert JSON to readable string
+                    const readable = JSON.stringify(json, null, 2);
+
+                    const chunkSize = 2000;
+                    const pagesText = [];
+                    for (let i = 0; i < readable.length; i += chunkSize) {
+                        pagesText.push({
+                            page_number: Math.floor(i / chunkSize) + 1,
+                            text: readable.slice(i, i + chunkSize)
+                        });
+                    }
+                    return pagesText;
+                } catch {
+                    // If not valid JSON, treat as plain text
+                    return extractTxtText(file);
+                }
+            };
+
+            // Extract text from XML file
+            const extractXmlText = async (file) => {
+                const xml = await file.text();
+                // Strip XML tags to get content
+                const text = xml
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+                const chunkSize = 2000;
+                const pagesText = [];
+                for (let i = 0; i < text.length; i += chunkSize) {
+                    pagesText.push({
+                        page_number: Math.floor(i / chunkSize) + 1,
+                        text: text.slice(i, i + chunkSize)
+                    });
+                }
+                return pagesText;
+            };
+
+            const handleSendMessage = async () => {
+                if (!input.trim() || chatLoading) return;
+
+                if (!apiKey) {
+                    alert('Please configure your OpenAI API key in the main Settings page first (go to Settings > AI Providers > OpenAI)');
+                    return;
+                }
+
+                if (selectedDocs.length === 0) {
+                    alert('Please select at least one document to chat with');
+                    return;
+                }
+
+                const question = input.trim();
+                setInput('');
+                setChatLoading(true);
+
+                // Add user message immediately
+                setMessages(prev => [...prev, { role: 'user', content: question }]);
+
+                try {
+                    // Use stored key from main Settings if available
+                    const useStoredKey = apiKey === '__USE_STORED_KEY__';
+                    const defaultProvider = settings?.default_provider || 'openai';
+
+                    const result = await api.post('/rag/chat', {
+                        question,
+                        document_ids: selectedDocs, // Multi-doc support
+                        openai_api_key: useStoredKey ? null : apiKey,
+                        use_stored_key: useStoredKey,
+                        llm_provider: defaultProvider,
+                        llm_model: settings?.[`${defaultProvider}_model`] || 'gpt-4o-mini'
+                    });
+
+                    if (result?.answer) {
+                        setMessages(prev => [...prev, {
+                            role: 'assistant',
+                            content: result.answer,
+                            sources: result.sources
+                        }]);
+                    } else {
+                        setMessages(prev => [...prev, {
+                            role: 'assistant',
+                            content: 'Sorry, I encountered an error: ' + (result?.error || 'Unknown error')
+                        }]);
+                    }
+                } catch (err) {
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: 'Error: ' + err.message
+                    }]);
+                }
+                setChatLoading(false);
+            };
+
+            // API settings are now managed in main Settings page
+            // No local settings panel needed
+
+            const handleDeleteDoc = async (docId) => {
+                if (!confirm('Delete this document and all its embeddings?')) return;
+                await api.post('/pdf/delete', { document_id: docId });
+                setDocuments(prev => prev.filter(d => d.id !== docId));
+                setSelectedDocs(prev => prev.filter(id => id !== docId));
+                if (viewingDoc?.id === docId) {
+                    setViewingDoc(null);
+                }
+            };
+
+            const handleBatchDelete = async () => {
+                if (selectedDocs.length === 0) {
+                    alert('No documents selected');
+                    return;
+                }
+                if (!confirm(`Delete ${selectedDocs.length} selected document(s) and all their embeddings?`)) return;
+
+                for (const docId of selectedDocs) {
+                    await api.post('/pdf/delete', { document_id: docId });
+                }
+
+                setDocuments(prev => prev.filter(d => !selectedDocs.includes(d.id)));
+                setSelectedDocs([]);
+                setMessages([]);
+            };
+
+            const handlePageClick = (pageNumber, doc = null) => {
+                const docToView = doc || documents.find(d => selectedDocs.includes(d.id));
+                if (docToView?.public_url) {
+                    setViewingDoc(docToView);
+                    setPdfViewerPage(pageNumber);
+                    setShowPdfViewer(true);
+                }
+            };
+
+            if (loading) return <div className="text-center py-8">Loading Document Chat...</div>;
+
+            // Check API key status
+            const hasValidOpenAIKey = settings?.openai_api_key && settings?.openai_validated;
+            const currentProvider = settings?.default_provider || 'openai';
+
+            return (
+                <div className="max-w-7xl mx-auto p-6">
+                    <div className="flex items-center justify-between mb-6">
+                        <div>
+                            <h2 className="text-3xl font-bold text-gray-800">📄 Document Chat</h2>
+                            {hasValidOpenAIKey ? (
+                                <p className="text-sm text-green-600 mt-1">
+                                    ✓ OpenAI API connected • Using {currentProvider} for responses
+                                </p>
+                            ) : (
+                                <p className="text-sm text-red-600 mt-1">
+                                    ⚠️ OpenAI API key not configured
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* API Key Status Banner */}
+                    {!hasValidOpenAIKey && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-6">
+                            <h3 className="font-semibold text-yellow-800 mb-2">🔑 API Key Required</h3>
+                            <p className="text-sm text-yellow-700 mb-3">
+                                Document Chat requires an OpenAI API key for embeddings. Please configure it in the main Settings page.
+                            </p>
+                            <p className="text-xs text-yellow-600">
+                                Go to <strong>Settings → AI Providers → OpenAI</strong> to add your API key.
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-4 gap-6">
+                        {/* Documents Sidebar */}
+                        <div className="col-span-1 bg-white rounded-xl shadow p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-semibold text-gray-700">📄 Documents</h3>
+                                {documents.length > 0 && (
+                                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                        {selectedDocs.length}/{documents.length} selected
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Upload Button */}
+                            <label className="block w-full mb-3">
+                                <div className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition
+                                    ${uploading || processing ? 'bg-gray-100 border-gray-300' : 'border-green-300 hover:border-green-500 hover:bg-green-50'}`}>
+                                    {(uploading || processing) ? (
+                                        <div className="flex flex-col items-center">
+                                            <div className="animate-spin text-xl mb-1">⏳</div>
+                                            <span className="text-sm text-gray-600 font-medium">
+                                                {uploadStatus || (processing ? 'Processing...' : 'Uploading...')}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="text-xl">📤</span>
+                                            <p className="text-sm text-gray-600">Upload Document</p>
+                                            <p className="text-xs text-gray-400">20+ formats</p>
+                                        </>
+                                    )}
+                                </div>
+                                <input
+                                    type="file"
+                                    accept=".pdf,.txt,.md,.docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.ods,.pptx,.ppt,.odp,.epub,.html,.htm,.json,.xml"
+                                    onChange={handleFileUpload}
+                                    className="hidden"
+                                    disabled={uploading || processing}
+                                />
+                            </label>
+
+                            {/* Selection Controls */}
+                            {documents.length > 0 && (
+                                <div className="flex gap-1 mb-3">
+                                    <button
+                                        onClick={selectAllDocs}
+                                        className="flex-1 text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded transition"
+                                    >
+                                        Select All
+                                    </button>
+                                    <button
+                                        onClick={deselectAllDocs}
+                                        className="flex-1 text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded transition"
+                                    >
+                                        Deselect
+                                    </button>
+                                    {selectedDocs.length > 0 && (
+                                        <button
+                                            onClick={handleBatchDelete}
+                                            className="text-xs px-2 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded transition"
+                                            title="Delete selected"
+                                        >
+                                            🗑️
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Document List */}
+                            <div className="space-y-2 max-h-80 overflow-y-auto">
+                                {documents.length === 0 ? (
+                                    <p className="text-sm text-gray-400 text-center py-4">No documents yet</p>
+                                ) : (
+                                    documents.map(doc => (
+                                        <div
+                                            key={doc.id}
+                                            className={`p-2 rounded-lg transition ${
+                                                selectedDocs.includes(doc.id)
+                                                    ? 'bg-green-100 border-2 border-green-500'
+                                                    : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                                            }`}
+                                        >
+                                            <div className="flex items-start gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedDocs.includes(doc.id)}
+                                                    onChange={() => toggleDocSelection(doc.id)}
+                                                    disabled={doc.status !== 'ready'}
+                                                    className="mt-1 h-4 w-4 text-green-600 rounded focus:ring-green-500"
+                                                />
+                                                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => {
+                                                    if (doc.status === 'ready') toggleDocSelection(doc.id);
+                                                }}>
+                                                    <p className="font-medium text-sm truncate">{doc.original_filename}</p>
+                                                    <p className="text-xs text-gray-500">
+                                                        {doc.page_count || '?'} pages •{' '}
+                                                        <span className={doc.status === 'ready' ? 'text-green-600' : doc.status === 'error' ? 'text-red-600' : 'text-yellow-600'}>
+                                                            {doc.status}
+                                                        </span>
+                                                    </p>
+                                                </div>
+                                                <div className="flex flex-col gap-1">
+                                                    {doc.public_url && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setViewingDoc(doc); setPdfViewerPage(1); setShowPdfViewer(true); }}
+                                                            className="text-blue-400 hover:text-blue-600 text-sm"
+                                                            title="View document"
+                                                        >
+                                                            📖
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.id); }}
+                                                        className="text-red-400 hover:text-red-600 text-sm"
+                                                        title="Delete"
+                                                    >
+                                                        🗑️
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Chat Area */}
+                        <div className="col-span-3 bg-white rounded-xl shadow flex flex-col" style={{ height: '600px' }}>
+                            {/* Chat Header */}
+                            <div className="p-4 border-b flex items-center justify-between">
+                                <div>
+                                    <h3 className="font-semibold text-gray-700">
+                                        {selectedDocs.length === 0
+                                            ? 'Select document(s) to chat'
+                                            : selectedDocs.length === 1
+                                                ? `Chatting with: ${documents.find(d => d.id === selectedDocs[0])?.original_filename || 'document'}`
+                                                : `Chatting with ${selectedDocs.length} documents`}
+                                    </h3>
+                                    {selectedDocs.length > 0 && (
+                                        <p className="text-xs text-gray-500">
+                                            {selectedDocs.length === 1
+                                                ? 'Ask questions about your study guide'
+                                                : 'Ask questions across all selected documents'}
+                                        </p>
+                                    )}
+                                </div>
+                                {selectedDocs.length === 1 && documents.find(d => d.id === selectedDocs[0])?.public_url && (
+                                    <button
+                                        onClick={() => {
+                                            const doc = documents.find(d => d.id === selectedDocs[0]);
+                                            setViewingDoc(doc);
+                                            setPdfViewerPage(1);
+                                            setShowPdfViewer(true);
+                                        }}
+                                        className="px-3 py-1 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200"
+                                    >
+                                        📖 View Document
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Messages */}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                                {messages.length === 0 ? (
+                                    <div className="text-center text-gray-400 py-12">
+                                        <span className="text-4xl">💬</span>
+                                        <p className="mt-2">
+                                            {selectedDocs.length > 0
+                                                ? 'Ask a question about your document(s)'
+                                                : 'Upload and select document(s) to start chatting'}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    messages.map((msg, i) => (
+                                        <div
+                                            key={i}
+                                            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                                        >
+                                            <div className={`max-w-3xl rounded-xl p-4 ${
+                                                msg.role === 'user'
+                                                    ? 'bg-green-500 text-white'
+                                                    : 'bg-gray-100 text-gray-800'
+                                            }`}>
+                                                <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                                                {/* Source citations */}
+                                                {msg.sources?.length > 0 && (
+                                                    <div className="mt-3 pt-2 border-t border-gray-200">
+                                                        <p className="text-xs font-medium text-gray-500 mb-1">Sources:</p>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {/* Group by document for multi-doc, or just show pages for single doc */}
+                                                            {selectedDocs.length > 1 ? (
+                                                                // Multi-doc: show document name + page
+                                                                msg.sources.map((s, idx) => {
+                                                                    const doc = documents.find(d => d.id === s.document_id);
+                                                                    return (
+                                                                        <button
+                                                                            key={idx}
+                                                                            onClick={() => {
+                                                                                if (doc) {
+                                                                                    setViewingDoc(doc);
+                                                                                    setPdfViewerPage(s.page_number);
+                                                                                    setShowPdfViewer(true);
+                                                                                }
+                                                                            }}
+                                                                            className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
+                                                                            title={s.document_name || 'Document'}
+                                                                        >
+                                                                            {(s.document_name || 'Doc').substring(0, 15)}... p.{s.page_number}
+                                                                        </button>
+                                                                    );
+                                                                })
+                                                            ) : (
+                                                                // Single doc: just show page numbers
+                                                                [...new Set(msg.sources.map(s => s.page_number))].map(page => (
+                                                                    <button
+                                                                        key={page}
+                                                                        onClick={() => handlePageClick(page)}
+                                                                        className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
+                                                                    >
+                                                                        Page {page}
+                                                                    </button>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                                {chatLoading && (
+                                    <div className="flex justify-start">
+                                        <div className="bg-gray-100 rounded-xl p-4">
+                                            <span className="animate-pulse">Thinking...</span>
+                                        </div>
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            {/* Input Area */}
+                            <div className="p-4 border-t">
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                                        placeholder={selectedDocs.length > 0 ? "Ask about your study guide..." : "Select document(s) first"}
+                                        disabled={selectedDocs.length === 0 || chatLoading}
+                                        className="flex-1 px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+                                    />
+                                    <button
+                                        onClick={handleSendMessage}
+                                        disabled={selectedDocs.length === 0 || !input.trim() || chatLoading}
+                                        className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                                    >
+                                        Send
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Document Viewer Modal */}
+                    {showPdfViewer && viewingDoc?.public_url && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-xl w-11/12 h-5/6 flex flex-col">
+                                <div className="p-4 border-b flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <h3 className="font-semibold">{viewingDoc.original_filename}</h3>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => setPdfViewerPage(Math.max(1, pdfViewerPage - 1))}
+                                                className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                            >
+                                                ←
+                                            </button>
+                                            <span className="text-sm">Page {pdfViewerPage}</span>
+                                            <button
+                                                onClick={() => setPdfViewerPage(pdfViewerPage + 1)}
+                                                className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                                            >
+                                                →
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowPdfViewer(false)}
+                                        className="text-gray-500 hover:text-gray-700 text-xl"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-auto p-4">
+                                    <iframe
+                                        src={`${viewingDoc.public_url}#page=${pdfViewerPage}`}
+                                        className="w-full h-full border rounded"
+                                        title="Document Viewer"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }

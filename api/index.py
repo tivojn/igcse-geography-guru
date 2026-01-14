@@ -1,5 +1,6 @@
 """
 Vercel Serverless API for IGCSE Geography Guru
+With RAG (Retrieval-Augmented Generation) for PDF Chat
 """
 from http.server import BaseHTTPRequestHandler
 import json
@@ -8,11 +9,17 @@ import re
 import urllib.request
 import urllib.error
 import uuid
+import base64
+from io import BytesIO
 
 # Test Yourself data is now stored in Supabase
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://wamzijrgngnvuzczxoqx.supabase.co')
 SUPABASE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
+
+# OpenAI API for embeddings (user provides their own key)
+OPENAI_EMBEDDING_MODEL = 'text-embedding-3-small'
+OPENAI_EMBEDDING_DIMENSION = 1536
 
 # Model lists
 CLAUDE_MODELS = [
@@ -105,14 +112,18 @@ def validate_openai_key(api_key):
             chat_models = []
             for m in data.get('data', []):
                 mid = m.get('id', '')
-                if any(x in mid for x in ['gpt-4', 'gpt-3.5', 'o1', 'o3']):
+                # Include all GPT models (gpt-3.5, gpt-4, gpt-5, etc.) and o-series
+                if any(x in mid for x in ['gpt-4', 'gpt-3.5', 'gpt-5', 'o1', 'o3', 'o4']):
                     if 'instruct' not in mid and 'audio' not in mid and 'realtime' not in mid:
                         chat_models.append({"id": mid, "name": mid})
             # Sort and deduplicate, prioritize newer models
             chat_models.sort(key=lambda x: x['id'], reverse=True)
             # Add friendly names for common models
             friendly = {
-                'gpt-4o': 'GPT-4o (Latest)',
+                'gpt-5': 'GPT-5 (Latest)',
+                'gpt-5.2': 'GPT-5.2',
+                'gpt-5-turbo': 'GPT-5 Turbo',
+                'gpt-4o': 'GPT-4o',
                 'gpt-4o-mini': 'GPT-4o Mini (Fast)',
                 'gpt-4-turbo': 'GPT-4 Turbo',
                 'gpt-4': 'GPT-4',
@@ -120,11 +131,14 @@ def validate_openai_key(api_key):
                 'o1': 'o1 (Reasoning)',
                 'o1-mini': 'o1 Mini',
                 'o1-preview': 'o1 Preview',
+                'o3': 'o3 (Advanced Reasoning)',
+                'o3-mini': 'o3 Mini',
+                'o4-mini': 'o4 Mini',
             }
             for m in chat_models:
                 if m['id'] in friendly:
                     m['name'] = friendly[m['id']]
-            return {"valid": True, "models": chat_models[:15] if chat_models else OPENAI_MODELS}
+            return {"valid": True, "models": chat_models[:20] if chat_models else OPENAI_MODELS}
     except urllib.error.HTTPError as e:
         if e.code == 401:
             return {"valid": False, "error": "Invalid API key"}
@@ -222,6 +236,132 @@ def call_gemini(api_key, model, prompt, max_tokens=1024):
         return {"success": False, "error": f"Gemini API error: {e.code} - {error_body}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+# ============================================
+# RAG HELPER FUNCTIONS
+# ============================================
+
+def get_openai_embedding(api_key, text):
+    """Generate embedding using OpenAI text-embedding-3-small"""
+    url = "https://api.openai.com/v1/embeddings"
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    data = json.dumps({
+        "model": OPENAI_EMBEDDING_MODEL,
+        "input": text
+    }).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            embedding = result.get('data', [{}])[0].get('embedding', [])
+            return {"success": True, "embedding": embedding}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else str(e)
+        return {"success": False, "error": f"OpenAI Embedding error: {e.code} - {error_body}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def chunk_text(text, chunk_size=500, overlap=50):
+    """Split text into overlapping chunks"""
+    words = text.split()
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = start + chunk_size
+        chunk = ' '.join(words[start:end])
+        chunks.append(chunk)
+        start = end - overlap
+    return chunks
+
+def supabase_post(table, data):
+    """POST to Supabase (insert only, no upsert)"""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+    }
+    req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        return {"error": str(e)}
+
+def supabase_patch(table, data, filters):
+    """PATCH to Supabase (update)"""
+    url = f"{SUPABASE_URL}/rest/v1/{table}?" + '&'.join(f"{k}={v}" for k, v in filters.items())
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+    }
+    req = urllib.request.Request(url, data=json.dumps(data).encode(), headers=headers, method='PATCH')
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        return {"error": str(e)}
+
+def supabase_delete(table, filters):
+    """DELETE from Supabase"""
+    url = f"{SUPABASE_URL}/rest/v1/{table}?" + '&'.join(f"{k}={v}" for k, v in filters.items())
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+    }
+    req = urllib.request.Request(url, headers=headers, method='DELETE')
+    try:
+        with urllib.request.urlopen(req) as response:
+            return {"success": True}
+    except Exception as e:
+        return {"error": str(e)}
+
+def supabase_rpc(function_name, params):
+    """Call Supabase RPC function"""
+    url = f"{SUPABASE_URL}/rest/v1/rpc/{function_name}"
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json'
+    }
+    req = urllib.request.Request(url, data=json.dumps(params).encode(), headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        return {"error": str(e)}
+
+def upload_to_supabase_storage(bucket, path, file_data, content_type='application/pdf'):
+    """Upload file to Supabase storage"""
+    url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{path}"
+    headers = {
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': content_type
+    }
+    req = urllib.request.Request(url, data=file_data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req) as response:
+            return {"success": True, "path": path}
+    except urllib.error.HTTPError as e:
+        # Try PUT if POST fails (for overwriting)
+        req = urllib.request.Request(url, data=file_data, headers=headers, method='PUT')
+        try:
+            with urllib.request.urlopen(req) as response:
+                return {"success": True, "path": path}
+        except Exception as e2:
+            return {"success": False, "error": str(e2)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def get_public_url(bucket, path):
+    """Get public URL for a file in Supabase storage"""
+    return f"{SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}"
 
 class handler(BaseHTTPRequestHandler):
     def _cors_headers(self):
@@ -516,6 +656,66 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
+        # ============================================
+        # RAG ENDPOINTS
+        # ============================================
+
+        # Get user's PDF documents
+        if path == '/pdf/documents':
+            docs = supabase_get('pdf_documents', {'select': '*', 'order': 'created_at.desc'})
+            # Add public URLs
+            for doc in docs:
+                doc['public_url'] = get_public_url('pdfs', doc.get('storage_path', ''))
+            self._json_response(200, docs)
+            return
+
+        # Get single PDF document
+        if path.startswith('/pdf/documents/') and not path.endswith('/chunks'):
+            doc_id = path.split('/')[-1]
+            docs = supabase_get('pdf_documents', {'id': f'eq.{doc_id}'})
+            if docs:
+                doc = docs[0]
+                doc['public_url'] = get_public_url('pdfs', doc.get('storage_path', ''))
+                self._json_response(200, doc)
+            else:
+                self._json_response(404, {"error": "Document not found"})
+            return
+
+        # Get chunks for a document
+        if path.endswith('/chunks'):
+            doc_id = path.split('/')[-2]
+            chunks = supabase_get('pdf_chunks', {
+                'document_id': f'eq.{doc_id}',
+                'select': 'id,chunk_index,page_number,content',
+                'order': 'chunk_index'
+            })
+            self._json_response(200, chunks)
+            return
+
+        # Get user settings (for API keys)
+        if path == '/user-settings':
+            settings = supabase_get('user_settings', {'select': '*', 'limit': '1'})
+            if settings:
+                s = settings[0]
+                # Mask API keys
+                if s.get('openai_api_key'):
+                    s['openai_api_key'] = '•' * 20 + s['openai_api_key'][-4:]
+                if s.get('anthropic_api_key'):
+                    s['anthropic_api_key'] = '•' * 20 + s['anthropic_api_key'][-4:]
+            self._json_response(200, settings[0] if settings else {})
+            return
+
+        # Get chat history
+        if path.startswith('/rag/chat/history/'):
+            doc_id = path.split('/')[-1]
+            messages = supabase_get('chat_messages', {
+                'document_id': f'eq.{doc_id}',
+                'select': '*',
+                'order': 'created_at'
+            })
+            self._json_response(200, messages)
+            return
+
         self._json_response(404, {"error": "Not found"})
 
     def do_POST(self):
@@ -725,6 +925,338 @@ Return ONLY a JSON array with this format:
                 self._json_response(200, {"response": result.get('content', '')})
             else:
                 self._json_response(500, {"error": result.get('error', 'AI request failed')})
+            return
+
+        # ============================================
+        # RAG POST ENDPOINTS
+        # ============================================
+
+        # Save user settings (API keys)
+        if '/user-settings' in path:
+            data = {
+                'id': body.get('id') or str(uuid.uuid4()),
+            }
+            if 'openai_api_key' in body:
+                data['openai_api_key'] = body['openai_api_key']
+            if 'anthropic_api_key' in body:
+                data['anthropic_api_key'] = body['anthropic_api_key']
+            if 'default_llm' in body:
+                data['default_llm'] = body['default_llm']
+
+            # Check if settings exist
+            existing = supabase_get('user_settings', {'select': 'id', 'limit': '1'})
+            if existing:
+                result = supabase_patch('user_settings', data, {'id': f'eq.{existing[0]["id"]}'})
+            else:
+                result = supabase_post('user_settings', data)
+
+            self._json_response(200, {"success": True, "data": result})
+            return
+
+        # Upload PDF and create document record
+        if '/pdf/upload' in path:
+            # Expect base64-encoded PDF data
+            pdf_base64 = body.get('file_data', '')
+            filename = body.get('filename', 'document.pdf')
+
+            if not pdf_base64:
+                self._json_response(400, {"error": "No file data provided"})
+                return
+
+            try:
+                # Decode base64
+                pdf_data = base64.b64decode(pdf_base64)
+
+                # Generate unique filename
+                doc_id = str(uuid.uuid4())
+                storage_path = f"{doc_id}/{filename}"
+
+                # Upload to Supabase storage
+                upload_result = upload_to_supabase_storage('pdfs', storage_path, pdf_data)
+
+                if not upload_result.get('success'):
+                    self._json_response(500, {"error": f"Upload failed: {upload_result.get('error')}"})
+                    return
+
+                # Create document record
+                doc_data = {
+                    'id': doc_id,
+                    'filename': filename,
+                    'original_filename': filename,
+                    'storage_path': storage_path,
+                    'file_size': len(pdf_data),
+                    'status': 'pending'
+                }
+                doc_result = supabase_post('pdf_documents', doc_data)
+
+                if doc_result and not doc_result.get('error'):
+                    doc = doc_result[0] if isinstance(doc_result, list) else doc_result
+                    doc['public_url'] = get_public_url('pdfs', storage_path)
+                    self._json_response(200, doc)
+                else:
+                    self._json_response(500, {"error": "Failed to create document record"})
+                return
+
+            except Exception as e:
+                self._json_response(500, {"error": f"Upload error: {str(e)}"})
+                return
+
+        # Process PDF - extract text and generate embeddings
+        if '/pdf/process' in path:
+            doc_id = body.get('document_id')
+            openai_api_key = body.get('openai_api_key')
+            use_stored_key = body.get('use_stored_key', False)
+            pages_text = body.get('pages_text', [])  # Array of {page_number, text}
+
+            if not doc_id:
+                self._json_response(400, {"error": "Missing document_id"})
+                return
+
+            # If use_stored_key is True, get key from ai_settings
+            if use_stored_key or not openai_api_key:
+                user_id = self._get_user_id()
+                if user_id:
+                    settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+                    if settings and settings[0].get('openai_api_key'):
+                        openai_api_key = settings[0]['openai_api_key']
+
+            if not openai_api_key:
+                self._json_response(400, {"error": "Missing OpenAI API key. Please configure it in Settings first."})
+                return
+
+            if not pages_text:
+                self._json_response(400, {"error": "Missing pages_text"})
+                return
+
+            try:
+                # Update document status
+                supabase_patch('pdf_documents', {'status': 'processing'}, {'id': f'eq.{doc_id}'})
+
+                # Process each page and create chunks
+                all_chunks = []
+                chunk_index = 0
+
+                for page_data in pages_text:
+                    page_number = page_data.get('page_number', 1)
+                    text = page_data.get('text', '')
+
+                    if not text.strip():
+                        continue
+
+                    # Chunk the page text
+                    page_chunks = chunk_text(text, chunk_size=400, overlap=50)
+
+                    for chunk_content in page_chunks:
+                        if len(chunk_content.strip()) < 20:
+                            continue
+
+                        # Generate embedding
+                        embed_result = get_openai_embedding(openai_api_key, chunk_content)
+
+                        if not embed_result.get('success'):
+                            continue
+
+                        embedding = embed_result.get('embedding', [])
+
+                        # Store chunk
+                        chunk_data = {
+                            'document_id': doc_id,
+                            'chunk_index': chunk_index,
+                            'page_number': page_number,
+                            'content': chunk_content,
+                            'token_count': len(chunk_content.split()),
+                            'embedding': embedding
+                        }
+
+                        supabase_post('pdf_chunks', chunk_data)
+                        all_chunks.append({'chunk_index': chunk_index, 'page_number': page_number})
+                        chunk_index += 1
+
+                # Update document status
+                supabase_patch('pdf_documents', {
+                    'status': 'ready',
+                    'page_count': len(pages_text)
+                }, {'id': f'eq.{doc_id}'})
+
+                self._json_response(200, {
+                    "success": True,
+                    "chunks_created": len(all_chunks),
+                    "pages_processed": len(pages_text)
+                })
+                return
+
+            except Exception as e:
+                supabase_patch('pdf_documents', {
+                    'status': 'error',
+                    'error_message': str(e)
+                }, {'id': f'eq.{doc_id}'})
+                self._json_response(500, {"error": f"Processing error: {str(e)}"})
+                return
+
+        # RAG Chat - query documents and generate response (supports multi-doc)
+        if '/rag/chat' in path:
+            question = body.get('question', '')
+            document_ids = body.get('document_ids', [])  # Array of doc IDs for multi-doc RAG
+            document_id = body.get('document_id')  # Legacy single doc support
+            openai_api_key = body.get('openai_api_key')
+            use_stored_key = body.get('use_stored_key', False)
+            llm_provider = body.get('llm_provider', 'openai')
+            llm_api_key = body.get('llm_api_key')
+            llm_model = body.get('llm_model', 'gpt-4o-mini')
+
+            # Support both old (document_id) and new (document_ids) params
+            if document_id and not document_ids:
+                document_ids = [document_id]
+
+            if not question:
+                self._json_response(400, {"error": "Missing question"})
+                return
+
+            # If use_stored_key is True, get key from ai_settings
+            if use_stored_key or not openai_api_key:
+                user_id = self._get_user_id()
+                if user_id:
+                    settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+                    if settings:
+                        s = settings[0]
+                        if not openai_api_key and s.get('openai_api_key'):
+                            openai_api_key = s['openai_api_key']
+                        if not llm_api_key:
+                            # Use appropriate LLM key based on provider
+                            llm_api_key = s.get(f'{llm_provider}_api_key') or openai_api_key
+                            llm_model = s.get(f'{llm_provider}_model') or llm_model
+
+            if not openai_api_key:
+                self._json_response(400, {"error": "Missing OpenAI API key. Please configure it in Settings first."})
+                return
+
+            if not llm_api_key:
+                llm_api_key = openai_api_key  # Use OpenAI key if no separate LLM key
+
+            try:
+                # Generate embedding for question
+                embed_result = get_openai_embedding(openai_api_key, question)
+
+                if not embed_result.get('success'):
+                    self._json_response(500, {"error": f"Embedding error: {embed_result.get('error')}"})
+                    return
+
+                query_embedding = embed_result.get('embedding', [])
+
+                # Get document info for filenames (for multi-doc context)
+                doc_info = {}
+                if document_ids:
+                    docs = supabase_get('pdf_documents', {'select': 'id,original_filename'})
+                    doc_info = {d['id']: d.get('original_filename', 'Document') for d in (docs or [])}
+
+                # Search for similar chunks - either per-doc or across all
+                all_chunks = []
+
+                if document_ids:
+                    # Multi-doc: search each document and combine results
+                    chunks_per_doc = max(3, 8 // len(document_ids))  # More chunks if fewer docs
+                    for doc_id in document_ids:
+                        search_params = {
+                            'query_embedding': query_embedding,
+                            'match_count': chunks_per_doc,
+                            'filter_document_id': doc_id
+                        }
+                        chunks = supabase_rpc('search_pdf_chunks', search_params)
+                        if chunks and not isinstance(chunks, dict):
+                            for c in chunks:
+                                c['doc_filename'] = doc_info.get(doc_id, 'Document')
+                            all_chunks.extend(chunks)
+                else:
+                    # Search all documents
+                    search_params = {
+                        'query_embedding': query_embedding,
+                        'match_count': 8
+                    }
+                    all_chunks = supabase_rpc('search_pdf_chunks', search_params) or []
+
+                # Sort by similarity and take top results
+                all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:8]
+
+                # Build context from similar chunks
+                context_parts = []
+                sources = []
+                for chunk in all_chunks:
+                    doc_name = chunk.get('doc_filename', 'Document')
+                    page_num = chunk.get('page_number', '?')
+                    content = chunk.get('content', '')
+
+                    if len(document_ids) > 1:
+                        context_parts.append(f"[{doc_name} - Page {page_num}]: {content}")
+                    else:
+                        context_parts.append(f"[Page {page_num}]: {content}")
+
+                    sources.append({
+                        'page_number': page_num,
+                        'document_id': chunk.get('document_id'),
+                        'document_name': doc_name,
+                        'content': content[:200] + '...' if len(content) > 200 else content,
+                        'similarity': chunk.get('similarity', 0)
+                    })
+
+                context = '\n\n'.join(context_parts)
+
+                # Build prompt for LLM
+                multi_doc_note = "from multiple documents" if len(document_ids) > 1 else "from the study guide"
+                prompt = f"""You are an IGCSE Geography study assistant. Answer the question based on the following context {multi_doc_note}.
+
+CONTEXT:
+{context}
+
+QUESTION: {question}
+
+INSTRUCTIONS:
+1. Answer based primarily on the context provided
+2. If the context doesn't contain enough information, say so
+3. Reference specific pages when relevant (e.g., "As mentioned on Page X..." or "In [document name], Page X...")
+4. Keep the answer clear and suitable for IGCSE level students
+
+ANSWER:"""
+
+                # Call LLM
+                if llm_provider == 'openai':
+                    result = call_openai(llm_api_key, llm_model, prompt, max_tokens=1024)
+                elif llm_provider == 'claude':
+                    result = call_claude(llm_api_key, llm_model, prompt, max_tokens=1024)
+                elif llm_provider == 'gemini':
+                    result = call_gemini(llm_api_key, llm_model, prompt, max_tokens=1024)
+                else:
+                    result = call_openai(llm_api_key, llm_model, prompt, max_tokens=1024)
+
+                if not result.get('success'):
+                    self._json_response(500, {"error": f"LLM error: {result.get('error')}"})
+                    return
+
+                answer = result.get('content', '')
+
+                self._json_response(200, {
+                    "answer": answer,
+                    "sources": sources
+                })
+                return
+
+            except Exception as e:
+                self._json_response(500, {"error": f"Chat error: {str(e)}"})
+                return
+
+        # Delete PDF document
+        if '/pdf/delete' in path:
+            doc_id = body.get('document_id')
+            if not doc_id:
+                self._json_response(400, {"error": "Missing document_id"})
+                return
+
+            # Delete chunks first
+            supabase_delete('pdf_chunks', {'document_id': f'eq.{doc_id}'})
+            # Delete document record
+            supabase_delete('pdf_documents', {'id': f'eq.{doc_id}'})
+            # Note: Storage file cleanup would need additional implementation
+
+            self._json_response(200, {"success": True})
             return
 
         self._json_response(200, {"success": True})
