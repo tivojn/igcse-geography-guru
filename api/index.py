@@ -137,10 +137,13 @@ def list_openai_models(api_key, timeout=15):
 
 def filter_chat_models(model_ids):
     """Filter to chat-capable models and return with friendly names"""
-    exclude = ['whisper', 'tts', 'dall-e', 'embedding', 'moderation',
-               'instruct', 'audio', 'realtime', 'search', 'similarity',
-               'code-', 'text-', 'davinci', 'curie', 'babbage', 'ada']
-    include = ['gpt-', 'o1', 'o3', 'o4', 'o5', 'chatgpt']  # gpt-3.5, gpt-4, gpt-5, o1, o3, o4, o5
+    # Exclude non-chat models (be specific to avoid excluding valid chat models)
+    exclude = ['whisper', 'tts-', 'dall-e', 'embedding', 'moderation',
+               'instruct', '-audio', 'realtime', 'similarity',
+               'text-embedding', 'text-davinci', 'text-curie', 'text-babbage', 'text-ada',
+               'davinci-002', 'curie', 'babbage-002', 'ada', 'transcribe', 'diarize',
+               'gpt-image', 'sora', 'codex']
+    include = ['gpt-3', 'gpt-4', 'gpt-5', 'o1', 'o3', 'o4', 'o5', 'chatgpt']
 
     chat_models = []
     for mid in model_ids:
@@ -163,29 +166,41 @@ def filter_chat_models(model_ids):
 
     # Add friendly names
     friendly = {
-        'gpt-5': 'GPT-5 (Latest)',
+        # GPT-5.x series
         'gpt-5.2': 'GPT-5.2 (Latest)',
-        'gpt-5-turbo': 'GPT-5 Turbo',
+        'gpt-5.2-pro': 'GPT-5.2 Pro',
+        'gpt-5.1': 'GPT-5.1',
+        'gpt-5': 'GPT-5',
+        'gpt-5-pro': 'GPT-5 Pro',
+        'gpt-5-mini': 'GPT-5 Mini (Fast)',
+        'gpt-5-nano': 'GPT-5 Nano (Fastest)',
+        'gpt-5-search-api': 'GPT-5 Search',
+        # GPT-4.x series
+        'gpt-4.1': 'GPT-4.1',
+        'gpt-4.1-mini': 'GPT-4.1 Mini',
+        'gpt-4.1-nano': 'GPT-4.1 Nano',
         'gpt-4o': 'GPT-4o (Flagship)',
         'gpt-4o-mini': 'GPT-4o Mini (Fast & Cheap)',
-        'gpt-4o-2024-11-20': 'GPT-4o (Nov 2024)',
-        'gpt-4o-2024-08-06': 'GPT-4o (Aug 2024)',
+        'gpt-4o-search-preview': 'GPT-4o Search',
+        'gpt-4o-mini-search-preview': 'GPT-4o Mini Search',
         'gpt-4-turbo': 'GPT-4 Turbo',
-        'gpt-4-turbo-preview': 'GPT-4 Turbo Preview',
         'gpt-4': 'GPT-4',
         'gpt-3.5-turbo': 'GPT-3.5 Turbo',
-        'o1': 'o1 (Reasoning)',
-        'o1-mini': 'o1 Mini (Fast Reasoning)',
-        'o1-preview': 'o1 Preview',
+        # o-series
+        'o3-pro': 'o3 Pro (Most Powerful)',
         'o3': 'o3 (Advanced)',
         'o3-mini': 'o3 Mini',
+        'o4-mini': 'o4 Mini',
+        'o1-pro': 'o1 Pro',
+        'o1': 'o1 (Reasoning)',
+        'o1-mini': 'o1 Mini',
         'chatgpt-4o-latest': 'ChatGPT-4o Latest',
     }
     for m in chat_models:
         if m['id'] in friendly:
             m['name'] = friendly[m['id']]
 
-    return chat_models[:25]
+    return chat_models[:40]  # Return up to 40 models
 
 
 def validate_openai_key(api_key):
