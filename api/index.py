@@ -873,6 +873,7 @@ class handler(BaseHTTPRequestHandler):
         # Debug endpoint to test brute-force similarity (bypasses ivfflat index)
         if path == '/debug/brute':
             query = self._get_query_param('q')
+            doc_id = self._get_query_param('document_id')
             if not query:
                 self._json_response(400, {"error": "Missing query parameter 'q'"})
                 return
@@ -892,7 +893,7 @@ class handler(BaseHTTPRequestHandler):
             query_embedding = emb_result['embedding']
 
             # Use Python fallback which does brute-force cosine similarity
-            chunks = search_chunks_fallback(query_embedding, 10, None)
+            chunks = search_chunks_fallback(query_embedding, 10, doc_id)
 
             results = []
             for i, chunk in enumerate(chunks or []):
