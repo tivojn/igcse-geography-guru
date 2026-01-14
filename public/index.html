@@ -603,9 +603,6 @@
         function Navigation({ user, currentView, setCurrentView, onLogout }) {
             const navItems = [
                 { id: 'topics', label: 'Topics', icon: '📚' },
-                { id: 'exam-practice', label: 'Exam Practice', icon: '📝' },
-                { id: 'case-studies', label: 'Case Studies', icon: '🌍' },
-                { id: 'study-guide', label: 'Study Guide', icon: '💡' },
                 { id: 'progress', label: 'Progress', icon: '📊' },
                 { id: 'weak-points', label: 'Weak Points', icon: '🎯' },
                 { id: 'settings', label: 'Settings', icon: '⚙️' }
@@ -732,6 +729,8 @@
                 { id: 'learn', label: 'Learn', icon: '📖' },
                 { id: 'flashcards', label: 'Flashcards', icon: '🃏' },
                 { id: 'test-yourself', label: 'Test Yourself', icon: '✅' },
+                { id: 'exam-practice', label: 'Exam Practice', icon: '📝' },
+                { id: 'study-tips', label: 'Tips & Errors', icon: '💡' },
                 { id: 'quiz', label: 'Quiz', icon: '✏️' }
             ];
 
@@ -773,6 +772,8 @@
                             {activeTab === 'learn' && <LearnTab data={data} onNavigate={navigateTo} />}
                             {activeTab === 'flashcards' && <FlashcardsTab definitions={data?.definitions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                             {activeTab === 'test-yourself' && <TestYourselfTab topicCode={topic.topic_number} topicName={topic.topic_name} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
+                            {activeTab === 'exam-practice' && <ExamPracticeTab topicId={topic.id} topicName={topic.topic_name} />}
+                            {activeTab === 'study-tips' && <StudyTipsTab topicId={topic.id} />}
                             {activeTab === 'quiz' && <QuizTab questions={data?.questions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                         </div>
                     </div>
@@ -1424,6 +1425,187 @@
                     <div className="text-center text-sm text-gray-400">
                         Source: Cambridge IGCSE and O Level Geography Study and Revision Guide (p.125-127)
                     </div>
+                </div>
+            );
+        }
+
+        // Exam Practice Tab Component - Shows exam questions with model answers for this topic
+        function ExamPracticeTab({ topicId, topicName }) {
+            const [questions, setQuestions] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [expandedId, setExpandedId] = useState(null);
+
+            useEffect(() => {
+                api.get(`/exam-questions/${topicId}`).then(data => {
+                    setQuestions(data || []);
+                    setLoading(false);
+                });
+            }, [topicId]);
+
+            if (loading) return <div className="text-center py-8">Loading exam questions...</div>;
+
+            if (questions.length === 0) {
+                return (
+                    <div className="text-center py-12">
+                        <span className="text-6xl">📝</span>
+                        <p className="mt-4 text-gray-500">No exam questions available for this topic yet.</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-lg font-semibold text-gray-800">
+                            📝 Exam-Style Questions ({questions.length})
+                        </h3>
+                    </div>
+
+                    {questions.map((q, index) => (
+                        <div key={q.id} className="border rounded-xl overflow-hidden bg-white shadow-sm">
+                            <div
+                                className="p-4 cursor-pointer hover:bg-gray-50 transition"
+                                onClick={() => setExpandedId(expandedId === q.id ? null : q.id)}
+                            >
+                                <div className="flex items-start justify-between">
+                                    <div className="flex-grow">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm font-medium">
+                                                {q.marks} marks
+                                            </span>
+                                            {q.command_word && (
+                                                <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm">
+                                                    {q.command_word}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-gray-800 font-medium">{q.question}</p>
+                                    </div>
+                                    <span className="text-gray-400 text-xl ml-4">
+                                        {expandedId === q.id ? '▼' : '▶'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {expandedId === q.id && (
+                                <div className="border-t bg-green-50 p-4">
+                                    <h4 className="font-semibold text-green-800 mb-2">✅ Model Answer:</h4>
+                                    <p className="text-gray-700 whitespace-pre-line">{q.model_answer}</p>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+
+                    <div className="text-center text-sm text-gray-400 mt-6">
+                        Practice these questions to prepare for your exam
+                    </div>
+                </div>
+            );
+        }
+
+        // Study Tips Tab Component - Shows tips and common errors for this topic
+        function StudyTipsTab({ topicId }) {
+            const [tips, setTips] = useState([]);
+            const [errors, setErrors] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [activeSection, setActiveSection] = useState('tips');
+
+            useEffect(() => {
+                Promise.all([
+                    api.get(`/tips/${topicId}`),
+                    api.get(`/common-errors/${topicId}`)
+                ]).then(([tipsData, errorsData]) => {
+                    setTips(tipsData || []);
+                    setErrors(errorsData || []);
+                    setLoading(false);
+                });
+            }, [topicId]);
+
+            if (loading) return <div className="text-center py-8">Loading study tips...</div>;
+
+            const hasTips = tips.length > 0;
+            const hasErrors = errors.length > 0;
+
+            if (!hasTips && !hasErrors) {
+                return (
+                    <div className="text-center py-12">
+                        <span className="text-6xl">💡</span>
+                        <p className="mt-4 text-gray-500">No tips or common errors available for this topic yet.</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-6">
+                    {/* Section Tabs */}
+                    <div className="flex gap-4 border-b">
+                        <button
+                            onClick={() => setActiveSection('tips')}
+                            className={`pb-2 px-4 font-medium transition ${
+                                activeSection === 'tips'
+                                    ? 'border-b-2 border-green-500 text-green-600'
+                                    : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            💡 Tips ({tips.length})
+                        </button>
+                        <button
+                            onClick={() => setActiveSection('errors')}
+                            className={`pb-2 px-4 font-medium transition ${
+                                activeSection === 'errors'
+                                    ? 'border-b-2 border-red-500 text-red-600'
+                                    : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            ⚠️ Common Errors ({errors.length})
+                        </button>
+                    </div>
+
+                    {/* Tips Section */}
+                    {activeSection === 'tips' && (
+                        <div className="space-y-3">
+                            {tips.length === 0 ? (
+                                <p className="text-gray-500 text-center py-4">No tips available for this topic.</p>
+                            ) : (
+                                tips.map((tip, index) => (
+                                    <div key={tip.id} className="flex items-start gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
+                                        <span className="text-2xl">💡</span>
+                                        <div>
+                                            <span className="inline-block px-2 py-0.5 bg-green-200 text-green-800 rounded text-xs mb-1">
+                                                {tip.tip_type === 'exam' ? 'Exam Tip' : 'Study Tip'}
+                                            </span>
+                                            <p className="text-gray-700">{tip.tip_text}</p>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+
+                    {/* Common Errors Section */}
+                    {activeSection === 'errors' && (
+                        <div className="space-y-3">
+                            {errors.length === 0 ? (
+                                <p className="text-gray-500 text-center py-4">No common errors listed for this topic.</p>
+                            ) : (
+                                errors.map((error, index) => (
+                                    <div key={error.id} className="p-4 bg-red-50 rounded-lg border border-red-200">
+                                        <div className="flex items-start gap-3">
+                                            <span className="text-2xl">⚠️</span>
+                                            <div>
+                                                <p className="text-red-800 font-medium">{error.error_statement}</p>
+                                                {error.explanation && (
+                                                    <p className="text-gray-600 mt-2 text-sm">
+                                                        <span className="font-medium">Why it's wrong:</span> {error.explanation}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
                 </div>
             );
         }
@@ -2940,10 +3122,6 @@
                             />
                         )}
 
-                        {currentView === 'exam-practice' && <ExamPracticeView />}
-                        {currentView === 'case-studies' && <CaseStudiesView />}
-                        {currentView === 'study-guide' && <StudyGuideView />}
-                        {currentView === 'sample-answers' && <SampleAnswersView />}
                         {currentView === 'progress' && <ProgressView />}
                         {currentView === 'weak-points' && <WeakPointsView />}
                         {currentView === 'settings' && (
