@@ -617,7 +617,7 @@
         // RAG Query Modal - Reusable "Talk to Documents" component
         // Can be used across Sample Exam Questions, Tips, Definitions, etc.
         // ============================================================================
-        function RAGQueryModal({ isOpen, onClose, context, contextType }) {
+        function RAGQueryModal({ isOpen, onClose, context, contextType, onNavigateToDocChat }) {
             const [documents, setDocuments] = useState([]);
             const [selectedDocs, setSelectedDocs] = useState([]);
             const [userQuestion, setUserQuestion] = useState('');
@@ -677,6 +677,37 @@
                     return;
                 }
 
+                // Build the query - combine context with optional user question
+                let query = '';
+                if (contextType === 'sample_question') {
+                    query = `Regarding this exam question and answer:\n\nQuestion: ${context.question}\n\nStudent Answer: ${context.answer}\n\nTeacher Comments: ${context.comments}`;
+                } else if (contextType === 'tip') {
+                    query = `Regarding this study tip:\n\n${context.text}`;
+                } else if (contextType === 'common_error') {
+                    query = `Regarding this common error:\n\nError: ${context.error}\n\nWhy it's wrong: ${context.explanation}`;
+                } else if (contextType === 'definition') {
+                    query = `Regarding this term and definition:\n\n${context.term}: ${context.definition}`;
+                } else {
+                    query = context.text || context;
+                }
+
+                if (userQuestion.trim()) {
+                    query += `\n\nUser's Question: ${userQuestion}`;
+                } else {
+                    query += `\n\nPlease provide more context, examples, and explanation from the study materials.`;
+                }
+
+                // Navigate to Document Chat with prefilled data
+                if (onNavigateToDocChat) {
+                    onNavigateToDocChat({
+                        question: query,
+                        documentIds: selectedDocs
+                    });
+                    onClose();
+                    return;
+                }
+
+                // Fallback: do inline search if navigation not available
                 // Check if OpenAI key is validated (api key exists and is validated)
                 const hasValidKey = settings?.openai_api_key && settings?.openai_validated;
                 if (!hasValidKey) {
@@ -688,26 +719,6 @@
                 setResult(null);
 
                 try {
-                    // Build the query - combine context with optional user question
-                    let query = '';
-                    if (contextType === 'sample_question') {
-                        query = `Regarding this exam question and answer:\n\nQuestion: ${context.question}\n\nStudent Answer: ${context.answer}\n\nTeacher Comments: ${context.comments}`;
-                    } else if (contextType === 'tip') {
-                        query = `Regarding this study tip:\n\n${context.text}`;
-                    } else if (contextType === 'common_error') {
-                        query = `Regarding this common error:\n\nError: ${context.error}\n\nWhy it's wrong: ${context.explanation}`;
-                    } else if (contextType === 'definition') {
-                        query = `Regarding this term and definition:\n\n${context.term}: ${context.definition}`;
-                    } else {
-                        query = context.text || context;
-                    }
-
-                    if (userQuestion.trim()) {
-                        query += `\n\nUser's Question: ${userQuestion}`;
-                    } else {
-                        query += `\n\nPlease provide more context, examples, and explanation from the study materials.`;
-                    }
-
                     // Use stored keys from main Settings
                     const defaultProvider = settings?.default_provider || 'openai';
                     const response = await api.post('/rag/chat', {
@@ -861,7 +872,7 @@
                                         disabled={querying || selectedDocs.length === 0}
                                         className="w-full py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
                                     >
-                                        {querying ? '🔍 Searching documents...' : '🔍 Search Study Materials'}
+                                        {querying ? '🔍 Searching...' : '🔍 Search in Document'}
                                     </button>
 
                                     {/* Result */}
@@ -1126,7 +1137,7 @@
         }
 
         // Topic Detail Component
-        function TopicDetail({ topic, onBack, typingSettings }) {
+        function TopicDetail({ topic, onBack, typingSettings, onNavigateToDocChat }) {
             const [data, setData] = useState(null);
             const [loading, setLoading] = useState(true);
             const [activeTab, setActiveTab] = useState('learn');
@@ -1218,6 +1229,7 @@
                             onClose={() => setRagModalOpen(false)}
                             context={ragContext}
                             contextType={ragContextType}
+                            onNavigateToDocChat={onNavigateToDocChat}
                         />
                     )}
                 </div>
@@ -3673,6 +3685,8 @@
             const [currentView, setCurrentView] = useState('topics');
             const [selectedTopic, setSelectedTopic] = useState(null);
             const [loading, setLoading] = useState(true);
+            // Pre-filled data for Document Chat (from RAG modal)
+            const [docChatPrefill, setDocChatPrefill] = useState(null);
 
             // Typing settings state
             const [typingSettings, setTypingSettings] = useState(() => {
@@ -3753,10 +3767,14 @@
                                 topic={selectedTopic}
                                 onBack={() => setSelectedTopic(null)}
                                 typingSettings={typingSettings}
+                                onNavigateToDocChat={(prefillData) => {
+                                    setDocChatPrefill(prefillData);
+                                    setCurrentView('pdf-chat');
+                                }}
                             />
                         )}
 
-                        {currentView === 'pdf-chat' && <PDFChatView />}
+                        {currentView === 'pdf-chat' && <PDFChatView prefill={docChatPrefill} onPrefillUsed={() => setDocChatPrefill(null)} />}
                         {currentView === 'progress' && <ProgressView />}
                         {currentView === 'weak-points' && <WeakPointsView />}
                         {currentView === 'settings' && (
@@ -3775,9 +3793,11 @@
         }
 
         // Document Chat View Component - RAG-powered chat with study guide documents
-        function PDFChatView() {
+        function PDFChatView({ prefill, onPrefillUsed }) {
             const [documents, setDocuments] = useState([]);
             const [selectedDocs, setSelectedDocs] = useState([]); // Multi-doc selection (array of IDs)
+            const [prefillProcessed, setPrefillProcessed] = useState(false); // Track if prefill was processed
+            const [pendingAutoSubmit, setPendingAutoSubmit] = useState(false); // Track pending auto-submit
             const [viewingDoc, setViewingDoc] = useState(null); // For PDF viewer
             const [messages, setMessages] = useState([]);
             const [input, setInput] = useState('');
@@ -3817,11 +3837,46 @@
                 messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
             }, [messages]);
 
-            // Clear chat when document selection changes
+            // Clear chat when document selection changes (but not when prefill sets docs)
             useEffect(() => {
-                // Clear messages when selection changes (multi-doc doesn't have shared history)
+                // Only clear messages if not during prefill processing
+                if (!prefillProcessed) return;
                 setMessages([]);
             }, [selectedDocs]);
+
+            // Handle prefill data from RAG modal navigation
+            useEffect(() => {
+                if (!prefill || !documents.length || !apiKey || prefillProcessed) return;
+
+                // Set the selected documents from prefill
+                let hasValidDocs = false;
+                if (prefill.documentIds && prefill.documentIds.length > 0) {
+                    // Filter to only include documents that exist and are ready
+                    const validDocIds = prefill.documentIds.filter(id =>
+                        documents.some(d => d.id === id && d.status === 'ready')
+                    );
+                    if (validDocIds.length > 0) {
+                        setSelectedDocs(validDocIds);
+                        hasValidDocs = true;
+                    }
+                }
+
+                // Set the question in the input and flag for auto-submit
+                if (prefill.question) {
+                    setInput(prefill.question);
+                    if (hasValidDocs) {
+                        setPendingAutoSubmit(true);
+                    }
+                }
+
+                // Mark prefill as processed
+                setPrefillProcessed(true);
+
+                // Clear prefill data in parent
+                if (onPrefillUsed) {
+                    onPrefillUsed();
+                }
+            }, [prefill, documents, apiKey, prefillProcessed, onPrefillUsed]);
 
             // Helper functions for document selection
             const toggleDocSelection = (docId) => {
@@ -4404,6 +4459,14 @@
                 }
                 setChatLoading(false);
             };
+
+            // Auto-submit when pendingAutoSubmit flag is set (after prefill)
+            useEffect(() => {
+                if (pendingAutoSubmit && input.trim() && selectedDocs.length > 0 && apiKey && !chatLoading) {
+                    setPendingAutoSubmit(false);
+                    handleSendMessage();
+                }
+            }, [pendingAutoSubmit, input, selectedDocs, apiKey, chatLoading]);
 
             // API settings are now managed in main Settings page
             // No local settings panel needed
