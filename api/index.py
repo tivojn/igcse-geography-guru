@@ -286,7 +286,18 @@ def call_openai(api_key, model, prompt, max_tokens=1024):
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
             result = json.loads(response.read().decode('utf-8'))
-            return {"success": True, "content": result.get('choices', [{}])[0].get('message', {}).get('content', '')}
+            content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+            # If content is empty, check for refusal or other issues
+            if not content:
+                finish_reason = result.get('choices', [{}])[0].get('finish_reason', '')
+                refusal = result.get('choices', [{}])[0].get('message', {}).get('refusal', '')
+                if refusal:
+                    return {"success": False, "error": f"Model refused: {refusal}", "raw": result}
+                if finish_reason and finish_reason != 'stop':
+                    return {"success": False, "error": f"Incomplete response: {finish_reason}", "raw": result}
+                # Return full response for debugging
+                return {"success": True, "content": "", "raw": result}
+            return {"success": True, "content": content}
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else str(e)
         return {"success": False, "error": f"OpenAI API error: {e.code} - {error_body}"}
@@ -1608,13 +1619,16 @@ Return ONLY a JSON array with this format:
 
             try:
                 # Generate embedding for question
+                print(f"[RAG DEBUG] Generating embedding for question: {question[:50]}...")
                 embed_result = get_openai_embedding(openai_api_key, question)
 
                 if not embed_result.get('success'):
+                    print(f"[RAG DEBUG] Embedding failed: {embed_result.get('error')}")
                     self._json_response(500, {"error": f"Embedding error: {embed_result.get('error')}"})
                     return
 
                 query_embedding = embed_result.get('embedding', [])
+                print(f"[RAG DEBUG] Embedding generated, length: {len(query_embedding)}")
 
                 # Get document info for filenames (for multi-doc context)
                 doc_info = {}
@@ -1636,6 +1650,9 @@ Return ONLY a JSON array with this format:
                             'filter_document_id': doc_id
                         }
                         chunks = supabase_rpc('search_pdf_chunks', search_params)
+                        print(f"[RAG DEBUG] RPC search for doc {doc_id}: {len(chunks) if isinstance(chunks, list) else 'error'} chunks")
+                        if isinstance(chunks, list) and chunks:
+                            print(f"[RAG DEBUG] Top similarity: {chunks[0].get('similarity', 0):.4f}")
                         debug_info['rpc_results'].append({
                             'doc_id': doc_id,
                             'result_type': type(chunks).__name__,
@@ -1747,15 +1764,20 @@ INSTRUCTIONS:
 
 ANSWER:"""
 
-                # Call LLM
+                # Check if we have any context
+                if not all_chunks:
+                    self._json_response(500, {"error": "No relevant content found in documents"})
+                    return
+
+                # Call LLM with higher token limit for comprehensive answers
                 if llm_provider == 'openai':
-                    result = call_openai(llm_api_key, llm_model, prompt, max_tokens=1024)
+                    result = call_openai(llm_api_key, llm_model, prompt, max_tokens=4096)
                 elif llm_provider == 'claude':
-                    result = call_claude(llm_api_key, llm_model, prompt, max_tokens=1024)
+                    result = call_claude(llm_api_key, llm_model, prompt, max_tokens=4096)
                 elif llm_provider == 'gemini':
-                    result = call_gemini(llm_api_key, llm_model, prompt, max_tokens=1024)
+                    result = call_gemini(llm_api_key, llm_model, prompt, max_tokens=4096)
                 else:
-                    result = call_openai(llm_api_key, llm_model, prompt, max_tokens=1024)
+                    result = call_openai(llm_api_key, llm_model, prompt, max_tokens=4096)
 
                 if not result.get('success'):
                     self._json_response(500, {"error": f"LLM error: {result.get('error', 'No response from AI provider')}"})
