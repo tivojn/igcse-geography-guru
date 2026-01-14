@@ -3812,7 +3812,13 @@
             const [showPdfViewer, setShowPdfViewer] = useState(false);
             const [pdfViewerZoom, setPdfViewerZoom] = useState(100);
             const [pdfViewerFullscreen, setPdfViewerFullscreen] = useState(false);
+            const [pdfTotalPages, setPdfTotalPages] = useState(0);
+            const [pdfSearchTerm, setPdfSearchTerm] = useState('');
+            const [pdfSearchResults, setPdfSearchResults] = useState([]);
+            const [pdfSearching, setPdfSearching] = useState(false);
+            const [showPdfSearch, setShowPdfSearch] = useState(false);
             const messagesEndRef = useRef(null);
+            const pdfDocRef = useRef(null); // Cache loaded PDF
 
             // Load documents and settings (use ai_settings for API keys - same as main Settings)
             useEffect(() => {
@@ -4506,6 +4512,72 @@
                 }
             };
 
+            // Load PDF and get total pages when viewer opens
+            useEffect(() => {
+                if (!showPdfViewer || !viewingDoc?.public_url) {
+                    pdfDocRef.current = null;
+                    setPdfTotalPages(0);
+                    setPdfSearchResults([]);
+                    setPdfSearchTerm('');
+                    setShowPdfSearch(false);
+                    return;
+                }
+
+                const loadPdf = async () => {
+                    try {
+                        const pdf = await pdfjsLib.getDocument(viewingDoc.public_url).promise;
+                        pdfDocRef.current = pdf;
+                        setPdfTotalPages(pdf.numPages);
+                    } catch (err) {
+                        console.error('Failed to load PDF:', err);
+                    }
+                };
+                loadPdf();
+            }, [showPdfViewer, viewingDoc?.public_url]);
+
+            // Search through PDF text
+            const handlePdfSearch = async () => {
+                if (!pdfSearchTerm.trim() || !pdfDocRef.current) return;
+
+                setPdfSearching(true);
+                setPdfSearchResults([]);
+
+                try {
+                    const pdf = pdfDocRef.current;
+                    const results = [];
+                    const searchLower = pdfSearchTerm.toLowerCase();
+
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        const pageText = textContent.items.map(item => item.str).join(' ');
+
+                        if (pageText.toLowerCase().includes(searchLower)) {
+                            // Find snippet around the match
+                            const lowerText = pageText.toLowerCase();
+                            const matchIdx = lowerText.indexOf(searchLower);
+                            const snippetStart = Math.max(0, matchIdx - 40);
+                            const snippetEnd = Math.min(pageText.length, matchIdx + pdfSearchTerm.length + 60);
+                            const snippet = (snippetStart > 0 ? '...' : '') +
+                                pageText.slice(snippetStart, snippetEnd) +
+                                (snippetEnd < pageText.length ? '...' : '');
+
+                            results.push({
+                                page: i,
+                                snippet: snippet,
+                                matchCount: (pageText.toLowerCase().match(new RegExp(searchLower, 'g')) || []).length
+                            });
+                        }
+                    }
+
+                    setPdfSearchResults(results);
+                } catch (err) {
+                    console.error('Search error:', err);
+                }
+
+                setPdfSearching(false);
+            };
+
             // Parse message content and replace page references with clickable links
             const renderMessageWithPageLinks = (content, sources = []) => {
                 if (!content) return null;
@@ -4867,11 +4939,15 @@
                                             <button
                                                 onClick={() => setPdfViewerPage(Math.max(1, pdfViewerPage - 1))}
                                                 className="px-2 hover:bg-gray-200 rounded"
+                                                disabled={pdfViewerPage <= 1}
                                             >←</button>
-                                            <span className="text-sm min-w-[60px] text-center">Page {pdfViewerPage}</span>
+                                            <span className="text-sm min-w-[80px] text-center">
+                                                Page {pdfViewerPage}{pdfTotalPages > 0 ? ` / ${pdfTotalPages}` : ''}
+                                            </span>
                                             <button
-                                                onClick={() => setPdfViewerPage(pdfViewerPage + 1)}
+                                                onClick={() => setPdfViewerPage(Math.min(pdfTotalPages || 999, pdfViewerPage + 1))}
                                                 className="px-2 hover:bg-gray-200 rounded"
+                                                disabled={pdfTotalPages > 0 && pdfViewerPage >= pdfTotalPages}
                                             >→</button>
                                         </div>
                                         {/* Zoom Controls */}
@@ -4888,11 +4964,11 @@
                                                 title="Zoom In"
                                             >+</button>
                                         </div>
-                                        {/* Search - Open in New Tab */}
+                                        {/* Search Toggle */}
                                         <button
-                                            onClick={() => window.open(`${viewingDoc.public_url}#page=${pdfViewerPage}`, '_blank')}
-                                            className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
-                                            title="Open in new tab for Cmd+F search"
+                                            onClick={() => setShowPdfSearch(!showPdfSearch)}
+                                            className={`px-3 py-1 rounded text-sm ${showPdfSearch ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+                                            title="Search in document"
                                         >🔍 Search</button>
                                         {/* Fullscreen Toggle */}
                                         <button
@@ -4907,6 +4983,57 @@
                                         >✕</button>
                                     </div>
                                 </div>
+
+                                {/* Search Panel */}
+                                {showPdfSearch && (
+                                    <div className="p-3 border-b bg-blue-50">
+                                        <div className="flex gap-2 mb-2">
+                                            <input
+                                                type="text"
+                                                value={pdfSearchTerm}
+                                                onChange={(e) => setPdfSearchTerm(e.target.value)}
+                                                onKeyPress={(e) => e.key === 'Enter' && handlePdfSearch()}
+                                                placeholder="Type text to search..."
+                                                className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                                autoFocus
+                                            />
+                                            <button
+                                                onClick={handlePdfSearch}
+                                                disabled={pdfSearching || !pdfSearchTerm.trim()}
+                                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300 text-sm"
+                                            >
+                                                {pdfSearching ? 'Searching...' : 'Find'}
+                                            </button>
+                                        </div>
+                                        {/* Search Results */}
+                                        {pdfSearchResults.length > 0 && (
+                                            <div className="max-h-40 overflow-y-auto bg-white rounded border">
+                                                <div className="p-2 text-xs text-gray-500 border-b bg-gray-50">
+                                                    Found on {pdfSearchResults.length} page(s)
+                                                </div>
+                                                {pdfSearchResults.map((result, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => { setPdfViewerPage(result.page); }}
+                                                        className={`p-2 cursor-pointer hover:bg-blue-50 border-b text-sm ${pdfViewerPage === result.page ? 'bg-blue-100' : ''}`}
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="font-medium text-blue-600">Page {result.page}</span>
+                                                            <span className="text-xs text-gray-400">{result.matchCount} match(es)</span>
+                                                        </div>
+                                                        <div className="text-xs text-gray-600 mt-1 truncate">{result.snippet}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {pdfSearchResults.length === 0 && pdfSearchTerm && !pdfSearching && (
+                                            <div className="text-sm text-gray-500 text-center py-2">
+                                                No results found for "{pdfSearchTerm}"
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="flex-1 overflow-auto p-2 bg-gray-100">
                                     <div style={{ transform: `scale(${pdfViewerZoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.2s' }}>
                                         <iframe

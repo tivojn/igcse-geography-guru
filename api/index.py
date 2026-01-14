@@ -1628,7 +1628,7 @@ Return ONLY a JSON array with this format:
 
                 if document_ids:
                     # Multi-doc: search each document and combine results
-                    chunks_per_doc = max(5, 10 // len(document_ids))  # More chunks if fewer docs
+                    chunks_per_doc = max(8, 15 // len(document_ids))  # More chunks if fewer docs (increased to capture more relevant pages)
                     for doc_id in document_ids:
                         search_params = {
                             'query_embedding': query_embedding,
@@ -1704,8 +1704,8 @@ Return ONLY a JSON array with this format:
                                 all_chunks = fallback_chunks
                                 debug_info['used_fallback'] = True
 
-                # Sort by similarity and take top results
-                all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:10]
+                # Sort by similarity and take top results (increased to 12 to capture more relevant pages)
+                all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:12]
 
                 # Build context from similar chunks
                 context_parts = []
