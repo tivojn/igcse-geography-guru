@@ -1642,13 +1642,25 @@ Return ONLY a JSON array with this format:
                             'error': chunks.get('error') if isinstance(chunks, dict) else None
                         })
 
-                        # If RPC fails (returns error dict or empty), use fallback
-                        if not chunks or isinstance(chunks, dict):
-                            chunks = search_chunks_fallback(query_embedding, chunks_per_doc, doc_id)
+                        # If RPC fails or returns poor results, use fallback
+                        rpc_ok = (
+                            chunks and
+                            isinstance(chunks, list) and
+                            len(chunks) > 0 and
+                            chunks[0].get('similarity', 0) > 0.2
+                        )
+                        if not rpc_ok:
+                            fallback_chunks = search_chunks_fallback(query_embedding, chunks_per_doc, doc_id)
                             debug_info['fallback_results'].append({
                                 'doc_id': doc_id,
-                                'result_count': len(chunks) if chunks else 0
+                                'result_count': len(fallback_chunks) if fallback_chunks else 0
                             })
+                            # Use fallback if better
+                            if fallback_chunks and len(fallback_chunks) > 0:
+                                fallback_top_sim = fallback_chunks[0].get('similarity', 0)
+                                rpc_top_sim = chunks[0].get('similarity', 0) if chunks and isinstance(chunks, list) and len(chunks) > 0 else 0
+                                if fallback_top_sim > rpc_top_sim:
+                                    chunks = fallback_chunks
 
                         if chunks and not isinstance(chunks, dict):
                             for c in chunks:
@@ -1668,13 +1680,28 @@ Return ONLY a JSON array with this format:
                         'error': all_chunks.get('error') if isinstance(all_chunks, dict) else None
                     })
 
-                    # If RPC fails, use fallback
-                    if not all_chunks or isinstance(all_chunks, dict):
-                        all_chunks = search_chunks_fallback(query_embedding, 8)
+                    # If RPC fails or returns poor results, use fallback
+                    # Check if RPC returned valid results with reasonable similarity
+                    rpc_ok = (
+                        all_chunks and
+                        isinstance(all_chunks, list) and
+                        len(all_chunks) > 0 and
+                        all_chunks[0].get('similarity', 0) > 0.2  # Threshold for decent match
+                    )
+                    if not rpc_ok:
+                        debug_info['rpc_low_similarity'] = True
+                        fallback_chunks = search_chunks_fallback(query_embedding, 8)
                         debug_info['fallback_results'].append({
                             'doc_id': None,
-                            'result_count': len(all_chunks) if all_chunks else 0
+                            'result_count': len(fallback_chunks) if fallback_chunks else 0
                         })
+                        # Use fallback if it found better results
+                        if fallback_chunks and len(fallback_chunks) > 0:
+                            fallback_top_sim = fallback_chunks[0].get('similarity', 0)
+                            rpc_top_sim = all_chunks[0].get('similarity', 0) if all_chunks and isinstance(all_chunks, list) and len(all_chunks) > 0 else 0
+                            if fallback_top_sim > rpc_top_sim:
+                                all_chunks = fallback_chunks
+                                debug_info['used_fallback'] = True
 
                 # Sort by similarity and take top results
                 all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:8]
