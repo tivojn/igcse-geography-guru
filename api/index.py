@@ -1636,10 +1636,17 @@ ANSWER:"""
 
                 response_data = {
                     "answer": answer,
-                    "sources": sources
+                    "sources": sources,
+                    # Always include debug summary for troubleshooting
+                    "debug_summary": {
+                        "document_ids_searched": document_ids,
+                        "chunks_found": len(all_chunks),
+                        "used_fallback": len(debug_info.get('fallback_results', [])) > 0,
+                        "top_similarities": [round(c.get('similarity', 0), 4) for c in all_chunks[:3]] if all_chunks else []
+                    }
                 }
 
-                # Include debug info if no sources found (helps troubleshoot RAG issues)
+                # Include full debug info if no sources found
                 if not sources:
                     response_data["debug"] = debug_info
 
