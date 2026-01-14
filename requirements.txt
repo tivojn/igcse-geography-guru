@@ -1,2 +1,2 @@
 # Vercel Python serverless functions requirements
-# No external dependencies needed - using stdlib only
+pypdf>=4.0.0

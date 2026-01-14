@@ -3769,15 +3769,37 @@
                 try {
                     // Read file as base64
                     const reader = new FileReader();
+                    reader.onerror = () => {
+                        alert('Error reading file');
+                        setUploading(false);
+                        setUploadStatus('');
+                    };
                     reader.onload = async (event) => {
                         setUploadStatus('Uploading to server...');
                         const base64 = event.target.result.split(',')[1];
 
-                        // Upload to server
-                        const uploadResult = await api.post('/pdf/upload', {
-                            file_data: base64,
-                            filename: file.name
-                        });
+                        // Check file size (warn if over 5MB base64)
+                        if (base64.length > 5 * 1024 * 1024) {
+                            setUploadStatus('Uploading large file (may take a moment)...');
+                        }
+
+                        // Upload to server with error handling
+                        let uploadResult;
+                        try {
+                            console.log('Starting upload, size:', Math.round(base64.length / 1024), 'KB');
+                            uploadResult = await api.post('/pdf/upload', {
+                                file_data: base64,
+                                filename: file.name
+                            });
+                            console.log('Upload result:', uploadResult);
+                        } catch (uploadErr) {
+                            console.error('Upload error:', uploadErr);
+                            alert('Upload failed: ' + (uploadErr.message || 'Network error. File may be too large.'));
+                            setUploading(false);
+                            setProcessing(false);
+                            setUploadStatus('');
+                            return;
+                        }
 
                         if (uploadResult?.id) {
                             // Extract text based on file type

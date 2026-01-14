@@ -346,18 +346,19 @@ def upload_to_supabase_storage(bucket, path, file_data, content_type='applicatio
     }
     req = urllib.request.Request(url, data=file_data, headers=headers, method='POST')
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=60) as response:
             return {"success": True, "path": path}
     except urllib.error.HTTPError as e:
+        error_msg = e.read().decode('utf-8') if e.fp else str(e)
         # Try PUT if POST fails (for overwriting)
         req = urllib.request.Request(url, data=file_data, headers=headers, method='PUT')
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=60) as response:
                 return {"success": True, "path": path}
         except Exception as e2:
-            return {"success": False, "error": str(e2)}
+            return {"success": False, "error": f"PUT failed: {str(e2)}, POST error: {error_msg}"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"Upload exception: {str(e)}"}
 
 def get_public_url(bucket, path):
     """Get public URL for a file in Supabase storage"""
@@ -463,13 +464,36 @@ class handler(BaseHTTPRequestHandler):
             user_id = self._get_user_id()
             settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'}) if user_id else []
             s = settings[0] if settings else {}
-            # Mask API keys
+
+            # Fetch dynamic models for validated providers
+            models = {"claude": CLAUDE_MODELS, "gemini": GEMINI_MODELS, "openai": OPENAI_MODELS}
+
+            # If OpenAI key is validated, fetch dynamic model list
+            if s.get('openai_validated') and s.get('openai_api_key'):
+                try:
+                    result = validate_openai_key(s['openai_api_key'])
+                    if result.get('valid') and result.get('models'):
+                        models['openai'] = result['models']
+                except:
+                    pass  # Fall back to static models
+
+            # If Gemini key is validated, fetch dynamic model list
+            if s.get('gemini_validated') and s.get('gemini_api_key'):
+                try:
+                    result = validate_gemini_key_with_models(s['gemini_api_key'])
+                    if result.get('valid') and result.get('models'):
+                        models['gemini'] = result['models']
+                except:
+                    pass  # Fall back to static models
+
+            # Mask API keys for response
             for k in ['claude_api_key', 'gemini_api_key', 'openai_api_key']:
                 if s.get(k):
                     s[k] = '•' * 20 + s[k][-4:]
+
             self._json_response(200, {
                 "settings": s,
-                "models": {"claude": CLAUDE_MODELS, "gemini": GEMINI_MODELS, "openai": OPENAI_MODELS}
+                "models": models
             })
             return
 
