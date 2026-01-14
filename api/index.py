@@ -885,6 +885,107 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
+        # Debug endpoint to test vector search
+        if path == '/debug/search':
+            query = self._get_query_param('q')
+            doc_id = self._get_query_param('document_id')
+            limit = int(self._get_query_param('limit') or '10')
+
+            if not query:
+                self._json_response(400, {"error": "Missing query parameter 'q'"})
+                return
+
+            # Get embedding for query
+            settings = supabase_get('ai_settings', {'select': 'openai_api_key', 'limit': '1'})
+            if not settings or not settings[0].get('openai_api_key'):
+                self._json_response(400, {"error": "No OpenAI API key configured"})
+                return
+
+            api_key = settings[0]['openai_api_key']
+            emb_result = get_embedding(api_key, query)
+            if not emb_result.get('success'):
+                self._json_response(500, {"error": f"Embedding failed: {emb_result.get('error')}"})
+                return
+
+            query_embedding = emb_result['embedding']
+
+            # Search chunks
+            search_params = {
+                'query_embedding': query_embedding,
+                'match_count': limit
+            }
+            if doc_id:
+                search_params['filter_document_id'] = doc_id
+
+            chunks = supabase_rpc('search_pdf_chunks', search_params)
+
+            # If RPC fails, use fallback
+            if not chunks or isinstance(chunks, dict):
+                chunks = search_chunks_fallback(query_embedding, limit, doc_id)
+
+            # Format results with full debug info
+            results = []
+            for i, chunk in enumerate(chunks or []):
+                results.append({
+                    'rank': i + 1,
+                    'page_number': chunk.get('page_number'),
+                    'similarity': round(chunk.get('similarity', 0), 4),
+                    'content_preview': chunk.get('content', '')[:300],
+                    'chunk_index': chunk.get('chunk_index'),
+                    'document_id': chunk.get('document_id')
+                })
+
+            self._json_response(200, {
+                'query': query,
+                'document_id': doc_id,
+                'total_results': len(results),
+                'results': results
+            })
+            return
+
+        # Debug endpoint to text-search chunks (find if content exists)
+        if path == '/debug/grep':
+            keyword = self._get_query_param('q')
+            doc_id = self._get_query_param('document_id')
+
+            if not keyword:
+                self._json_response(400, {"error": "Missing query parameter 'q'"})
+                return
+
+            # Get all chunks for this document
+            params = {'select': 'id,chunk_index,page_number,content'}
+            if doc_id:
+                params['document_id'] = f'eq.{doc_id}'
+
+            chunks = supabase_get('pdf_chunks', params)
+
+            # Text search (case-insensitive)
+            keyword_lower = keyword.lower()
+            matches = []
+            for chunk in (chunks or []):
+                content = chunk.get('content', '')
+                if keyword_lower in content.lower():
+                    # Find position of match
+                    pos = content.lower().find(keyword_lower)
+                    # Get context around match (100 chars before/after)
+                    start = max(0, pos - 100)
+                    end = min(len(content), pos + len(keyword) + 100)
+                    context = content[start:end]
+
+                    matches.append({
+                        'page_number': chunk.get('page_number'),
+                        'chunk_index': chunk.get('chunk_index'),
+                        'match_context': f"...{context}..." if start > 0 else context
+                    })
+
+            self._json_response(200, {
+                'keyword': keyword,
+                'document_id': doc_id,
+                'total_matches': len(matches),
+                'matches': matches
+            })
+            return
+
         # Get user settings (for API keys)
         if path == '/user-settings':
             settings = supabase_get('user_settings', {'select': '*', 'limit': '1'})
