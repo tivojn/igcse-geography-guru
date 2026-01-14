@@ -288,17 +288,31 @@ class handler(BaseHTTPRequestHandler):
         if '/test-yourself' in path:
             parts = path.split('/')
             if len(parts) > 2:
-                # Path is /api/topics/{id}/test-yourself, so topic_id is second to last
-                topic_id = parts[-2] if parts[-1] == 'test-yourself' else parts[-1]
-                # Fetch from Supabase
-                questions = supabase_get('test_yourself', {
-                    'topic_id': f'eq.{topic_id}',
-                    'select': '*',
-                    'order': 'question_number'
-                })
-                # Format response
-                formatted = [{"number": q["question_number"], "question": q["question"], "answer": q["answer"]} for q in questions]
-                self._json_response(200, formatted)
+                # Path could be /api/test-yourself/{topic_number} or /api/topics/{id}/test-yourself
+                topic_identifier = parts[-2] if parts[-1] == 'test-yourself' else parts[-1]
+
+                # If it looks like a topic_number (e.g., '1.1'), look up the topic_id
+                if '.' in str(topic_identifier):
+                    topic_lookup = supabase_get('topics', {
+                        'topic_number': f'eq.{topic_identifier}',
+                        'select': 'id'
+                    })
+                    topic_id = topic_lookup[0]['id'] if topic_lookup else None
+                else:
+                    topic_id = topic_identifier
+
+                if topic_id:
+                    # Fetch from Supabase
+                    questions = supabase_get('test_yourself', {
+                        'topic_id': f'eq.{topic_id}',
+                        'select': '*',
+                        'order': 'question_number'
+                    })
+                    # Format response
+                    formatted = [{"number": q["question_number"], "question": q["question"], "answer": q["answer"]} for q in questions]
+                    self._json_response(200, formatted)
+                else:
+                    self._json_response(200, [])
             else:
                 # Return all topics
                 questions = supabase_get('test_yourself', {'select': '*', 'order': 'topic_id,question_number'})
