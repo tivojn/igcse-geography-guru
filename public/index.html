@@ -1061,6 +1061,10 @@
             const [loading, setLoading] = useState(true);
             const [activeTab, setActiveTab] = useState('learn');
             const [startIndex, setStartIndex] = useState(0);
+            // RAG modal state
+            const [ragModalOpen, setRagModalOpen] = useState(false);
+            const [ragContext, setRagContext] = useState(null);
+            const [ragContextType, setRagContextType] = useState('general');
 
             useEffect(() => {
                 api.get(`/topics/${topic.id}`).then(result => {
@@ -1073,6 +1077,13 @@
             const navigateTo = (tabId, index = 0) => {
                 setStartIndex(index);
                 setActiveTab(tabId);
+            };
+
+            // RAG modal helper
+            const openRAGModal = (context, contextType) => {
+                setRagContext(context);
+                setRagContextType(contextType);
+                setRagModalOpen(true);
             };
 
             if (loading) return <div className="text-center py-8">Loading...</div>;
@@ -1121,7 +1132,7 @@
                         </div>
 
                         <div className="p-6">
-                            {activeTab === 'learn' && <LearnTab data={data} onNavigate={navigateTo} />}
+                            {activeTab === 'learn' && <LearnTab data={data} onNavigate={navigateTo} onOpenRAG={openRAGModal} />}
                             {activeTab === 'flashcards' && <FlashcardsTab definitions={data?.definitions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                             {activeTab === 'test-yourself' && <TestYourselfTab topicCode={topic.topic_number} topicName={topic.topic_name} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                             {activeTab === 'exam-practice' && <ExamPracticeTab topicId={topic.id} topicName={topic.topic_name} />}
@@ -1129,12 +1140,22 @@
                             {activeTab === 'quiz' && <QuizTab questions={data?.questions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                         </div>
                     </div>
+
+                    {/* RAG Query Modal */}
+                    {ragModalOpen && (
+                        <RAGQueryModal
+                            isOpen={ragModalOpen}
+                            onClose={() => setRagModalOpen(false)}
+                            context={ragContext}
+                            contextType={ragContextType}
+                        />
+                    )}
                 </div>
             );
         }
 
         // Learn Tab Component
-        function LearnTab({ data, onNavigate }) {
+        function LearnTab({ data, onNavigate, onOpenRAG }) {
             const content = data?.content || {};
 
             return (
@@ -1174,6 +1195,13 @@
                                             >
                                                 ✏️
                                             </button>
+                                            <button
+                                                onClick={() => onOpenRAG({ term: def.term, definition: def.definition }, 'definition')}
+                                                className="px-2 py-1 text-xs bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition"
+                                                title="Search in documents"
+                                            >
+                                                📚
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -1184,22 +1212,40 @@
                     {content.tips?.length > 0 && (
                         <section>
                             <h3 className="text-xl font-bold text-gray-800 mb-4">💡 Exam Tips</h3>
-                            <ul className="list-disc list-inside space-y-2">
+                            <div className="space-y-2">
                                 {content.tips.map((tip, i) => (
-                                    <li key={i} className="text-gray-700">{tip}</li>
+                                    <div key={i} className="flex items-start gap-2">
+                                        <span className="text-gray-700">• {tip}</span>
+                                        <button
+                                            onClick={() => onOpenRAG({ text: tip }, 'tip')}
+                                            className="px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition flex-shrink-0"
+                                            title="Search in documents"
+                                        >
+                                            📚
+                                        </button>
+                                    </div>
                                 ))}
-                            </ul>
+                            </div>
                         </section>
                     )}
 
                     {content.common_errors?.length > 0 && (
                         <section>
                             <h3 className="text-xl font-bold text-gray-800 mb-4">⚠️ Common Errors</h3>
-                            <ul className="list-disc list-inside space-y-2">
+                            <div className="space-y-2">
                                 {content.common_errors.map((error, i) => (
-                                    <li key={i} className="text-red-600">{error}</li>
+                                    <div key={i} className="flex items-start gap-2">
+                                        <span className="text-red-600">• {error}</span>
+                                        <button
+                                            onClick={() => onOpenRAG({ error: error, explanation: '' }, 'common_error')}
+                                            className="px-2 py-0.5 text-xs bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition flex-shrink-0"
+                                            title="Search in documents"
+                                        >
+                                            📚
+                                        </button>
+                                    </div>
                                 ))}
-                            </ul>
+                            </div>
                         </section>
                     )}
                 </div>
