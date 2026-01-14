@@ -1479,7 +1479,7 @@
                                                 </span>
                                             )}
                                         </div>
-                                        <p className="text-gray-800 font-medium">{q.question}</p>
+                                        <p className="text-gray-800 font-medium">{q.question_text}</p>
                                     </div>
                                     <span className="text-gray-400 text-xl ml-4">
                                         {expandedId === q.id ? '▼' : '▶'}
@@ -1593,10 +1593,10 @@
                                         <div className="flex items-start gap-3">
                                             <span className="text-2xl">⚠️</span>
                                             <div>
-                                                <p className="text-red-800 font-medium">{error.error_statement}</p>
-                                                {error.explanation && (
+                                                <p className="text-red-800 font-medium">{error.error_description}</p>
+                                                {error.why_wrong && (
                                                     <p className="text-gray-600 mt-2 text-sm">
-                                                        <span className="font-medium">Why it's wrong:</span> {error.explanation}
+                                                        <span className="font-medium">Why it's wrong:</span> {error.why_wrong}
                                                     </p>
                                                 )}
                                             </div>
