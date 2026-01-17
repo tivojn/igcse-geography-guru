@@ -599,6 +599,7 @@
             settings = {},
             label = "Definition"
         }) {
+            const { theme } = useContext(ThemeContext);
             const {
                 memoryDuration = 5,
                 stuckTimeout = 2,
@@ -730,27 +731,34 @@
                 return text.split('').map((char, index) => {
                     const typedChar = input[index];
                     let className = "transition-all duration-200 ";
+                    let inlineStyle = {};
 
                     if (typedChar == null) {
                         // Untyped
                         const isHint = index < hintEndIndex;
                         if (!isTextVisible && !isHint) {
-                            className += "opacity-0 blur-sm text-gray-400 select-none";
+                            className += "opacity-0 blur-sm select-none";
+                            inlineStyle = { color: 'var(--color-text-muted)' };
                         } else if (isHint) {
                             className += "text-yellow-500 opacity-100 animate-pulse";
                         } else {
-                            className += "text-gray-400 opacity-60";
+                            className += "opacity-60";
+                            inlineStyle = { color: 'var(--color-text-muted)' };
                         }
                     } else if (typedChar === char) {
                         className += "text-green-500 font-medium";
                     } else {
-                        className += "text-red-500 bg-red-100 rounded";
+                        className += "rounded";
+                        inlineStyle = {
+                            color: theme === 'dark' ? '#FCA5A5' : '#EF4444',
+                            background: theme === 'dark' ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2'
+                        };
                     }
 
                     const isCursor = index === input.length;
 
                     return (
-                        <span key={index} ref={isCursor ? cursorRef : null} className={`relative ${className}`}>
+                        <span key={index} ref={isCursor ? cursorRef : null} className={`relative ${className}`} style={inlineStyle}>
                             {isCursor && (
                                 <span className="absolute -left-px top-0 w-0.5 h-full bg-green-500 caret-blink" />
                             )}
@@ -778,25 +786,33 @@
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-3">
                             <span className="text-2xl">⌨️</span>
-                            <span className="font-semibold text-gray-700">Type to Memorize</span>
+                            <span className="font-semibold" style={{ color: 'var(--color-text)' }}>Type to Memorize</span>
                         </div>
                         <div className="flex items-center gap-3">
                             {isTextVisible && !isComplete && (
-                                <span className="text-sm font-mono bg-gray-100 px-3 py-1 rounded-full text-gray-600">
+                                <span
+                                    className="text-sm font-mono px-3 py-1 rounded-full"
+                                    style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
+                                >
                                     ⏱️ {timeLeft}s
                                 </span>
                             )}
                             {!isTextVisible && !isComplete && (
                                 <button
                                     onClick={handleReshow}
-                                    className="text-sm bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full hover:bg-yellow-200 transition flex items-center gap-1"
+                                    className="text-sm px-3 py-1 rounded-full transition flex items-center gap-1"
+                                    style={{
+                                        background: theme === 'dark' ? 'rgba(234, 179, 8, 0.2)' : '#FEF9C3',
+                                        color: '#CA8A04'
+                                    }}
                                 >
                                     👁️ Peek
                                 </button>
                             )}
                             <button
                                 onClick={onCancel}
-                                className="text-gray-400 hover:text-gray-600 transition"
+                                className="transition"
+                                style={{ color: 'var(--color-text-muted)' }}
                             >
                                 ✕
                             </button>
@@ -804,16 +820,18 @@
                     </div>
 
                     {/* Label */}
-                    <div className="text-xs uppercase tracking-wider text-gray-400 mb-2">{label}</div>
+                    <div className="text-xs uppercase tracking-wider mb-2" style={{ color: 'var(--color-text-muted)' }}>{label}</div>
 
                     {/* Typing area */}
                     <div
-                        className={`relative bg-gray-50 rounded-xl p-6 border-2 transition-all cursor-text ${
-                            isComplete ? 'border-green-500 animate-pulse-glow' : 'border-gray-200'
-                        }`}
+                        className="relative rounded-xl p-6 border-2 transition-all cursor-text"
+                        style={{
+                            background: 'var(--color-bg-alt)',
+                            borderColor: isComplete ? 'var(--color-success)' : 'var(--color-border)'
+                        }}
                         onClick={() => inputRef.current?.focus()}
                     >
-                        <div className="text-lg leading-relaxed font-serif min-h-[60px]">
+                        <div className="text-lg leading-relaxed font-serif min-h-[60px]" style={{ color: 'var(--color-text)' }}>
                             {renderText()}
                             {input.length === text.length && !isComplete && (
                                 <span className="inline-block w-0.5 h-5 bg-green-500 caret-blink align-middle ml-0.5" />
@@ -836,13 +854,13 @@
 
                     {/* Progress bar */}
                     <div className="mt-4 flex items-center gap-3">
-                        <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div className="flex-1 rounded-full h-2 overflow-hidden" style={{ background: 'var(--color-border)' }}>
                             <div
                                 className="bg-gradient-to-r from-green-400 to-green-600 h-full transition-all duration-150"
                                 style={{ width: `${(input.length / text.length) * 100}%` }}
                             />
                         </div>
-                        <span className="text-sm text-gray-500 font-mono">
+                        <span className="text-sm font-mono" style={{ color: 'var(--color-text-muted)' }}>
                             {input.length}/{text.length}
                         </span>
                     </div>
@@ -850,7 +868,7 @@
                     {/* Completion message */}
                     {isComplete && (
                         <div className="mt-4 text-center animate-fade-in-up">
-                            <span className="text-green-600 font-semibold">✅ Perfect! Definition memorized!</span>
+                            <span className="font-semibold" style={{ color: 'var(--color-success)' }}>✅ Perfect! Definition memorized!</span>
                         </div>
                     )}
                 </div>
@@ -1944,6 +1962,7 @@
 
         // Test Yourself Tab Component (Study Guide Questions p.125-127) - ENHANCED
         function TestYourselfTab({ topicCode, topicName, typingSettings, startIndex = 0, onStartIndexUsed }) {
+            const { theme } = useContext(ThemeContext);
             const [questions, setQuestions] = useState([]);
             const [loading, setLoading] = useState(true);
             const [revealedAnswers, setRevealedAnswers] = useState({});
@@ -2036,7 +2055,7 @@
                 return (
                     <div className="text-center py-8">
                         <div className="text-6xl mb-4">📝</div>
-                        <p className="text-gray-500">No Test Yourself questions available for this topic yet.</p>
+                        <p style={{ color: 'var(--color-text-muted)' }}>No Test Yourself questions available for this topic yet.</p>
                     </div>
                 );
             }
@@ -2049,18 +2068,19 @@
                 return (
                     <div className="text-center py-8">
                         <div className="text-6xl mb-4">{percentage >= 70 ? '🌟' : percentage >= 50 ? '👍' : '📚'}</div>
-                        <h3 className="text-2xl font-bold text-gray-800 mb-2">Test Yourself Complete!</h3>
-                        <p className="text-xl text-gray-600 mb-4">
+                        <h3 className="text-2xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>Test Yourself Complete!</h3>
+                        <p className="text-xl mb-4" style={{ color: 'var(--color-text-secondary)' }}>
                             You knew {totalScore} out of {questions.length} answers ({percentage}%)
                         </p>
-                        <p className="text-gray-500 mb-6">
+                        <p className="mb-6" style={{ color: 'var(--color-text-muted)' }}>
                             {percentage >= 70 ? 'Excellent work! You have a strong understanding.' :
                              percentage >= 50 ? 'Good effort! Review the answers you missed.' :
                              'Keep studying! Review the definitions and try again.'}
                         </p>
                         <button
                             onClick={resetQuiz}
-                            className="bg-green-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-600"
+                            className="px-6 py-3 rounded-lg font-semibold transition"
+                            style={{ background: 'var(--color-success)', color: '#FFFFFF' }}
                         >
                             Try Again
                         </button>
@@ -2077,7 +2097,8 @@
                         <div className="flex items-center justify-between">
                             <button
                                 onClick={exitFocusMode}
-                                className="text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                                className="flex items-center gap-1 transition"
+                                style={{ color: 'var(--color-text-muted)' }}
                             >
                                 ← Back to All Questions
                             </button>
@@ -2088,42 +2109,51 @@
                             <button
                                 onClick={goToPrevious}
                                 disabled={focusedIndex === 0}
-                                className="px-4 py-2 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                className="px-4 py-2 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                             >
                                 ← Previous
                             </button>
-                            <span className="text-gray-500 font-medium">
+                            <span className="font-medium" style={{ color: 'var(--color-text-muted)' }}>
                                 Question {focusedIndex + 1} of {questions.length}
                             </span>
                             <button
                                 onClick={goToNext}
                                 disabled={focusedIndex >= questions.length - 1}
-                                className="px-4 py-2 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                className="px-4 py-2 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                             >
                                 Next →
                             </button>
                         </div>
 
                         {/* Single Question Card */}
-                        <div className={`border-2 rounded-xl overflow-hidden ${
-                            userScores[index] !== undefined
-                                ? (userScores[index] ? 'border-green-400 bg-green-50' : 'border-red-400 bg-red-50')
-                                : 'border-gray-300'
-                        }`}>
+                        <div
+                            className="border-2 rounded-xl overflow-hidden"
+                            style={{
+                                borderColor: userScores[index] !== undefined
+                                    ? (userScores[index] ? 'var(--color-success)' : 'var(--color-error)')
+                                    : 'var(--color-border)',
+                                background: userScores[index] !== undefined
+                                    ? (userScores[index] ? 'rgba(45, 106, 79, 0.1)' : 'rgba(197, 48, 48, 0.1)')
+                                    : 'var(--color-surface)'
+                            }}
+                        >
                             <div className="p-6">
                                 <div className="flex items-start space-x-4">
-                                    <span className="flex-shrink-0 w-12 h-12 bg-green-500 text-white rounded-full flex items-center justify-center font-bold text-xl">
+                                    <span className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center font-bold text-xl" style={{ background: 'var(--color-success)', color: '#FFFFFF' }}>
                                         {q.number}
                                     </span>
                                     <div className="flex-grow">
-                                        <p className="text-gray-800 font-medium text-lg">{q.question}</p>
+                                        <p className="font-medium text-lg" style={{ color: 'var(--color-text)' }}>{q.question}</p>
                                     </div>
                                 </div>
 
                                 {!revealedAnswers[index] && userScores[index] === undefined && (
                                     <button
                                         onClick={() => toggleAnswer(index)}
-                                        className="mt-6 ml-16 text-green-600 hover:text-green-800 font-medium flex items-center space-x-1 text-lg"
+                                        className="mt-6 ml-16 font-medium flex items-center space-x-1 text-lg transition"
+                                        style={{ color: 'var(--color-success)' }}
                                     >
                                         <span>👁️ Reveal Answer</span>
                                     </button>
@@ -2141,25 +2171,28 @@
                                             />
                                         ) : (
                                             <>
-                                                <div className="bg-white p-6 rounded-lg border border-green-200">
-                                                    <p className="text-gray-700 text-lg">{q.answer}</p>
+                                                <div className="p-6 rounded-lg border" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-success)' }}>
+                                                    <p className="text-lg" style={{ color: 'var(--color-text)' }}>{q.answer}</p>
                                                 </div>
                                                 <div className="mt-4 flex flex-wrap gap-3">
                                                     <button
                                                         onClick={() => startTyping(index)}
-                                                        className="bg-blue-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition flex items-center gap-2"
+                                                        className="px-6 py-3 rounded-lg font-medium transition flex items-center gap-2"
+                                                        style={{ background: 'var(--color-primary)', color: '#FFFFFF' }}
                                                     >
                                                         ⌨️ Type to Memorize
                                                     </button>
                                                     <button
                                                         onClick={() => markScore(index, true)}
-                                                        className="bg-green-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-600 transition"
+                                                        className="px-6 py-3 rounded-lg font-medium transition"
+                                                        style={{ background: 'var(--color-success)', color: '#FFFFFF' }}
                                                     >
                                                         ✅ I knew this
                                                     </button>
                                                     <button
                                                         onClick={() => markScore(index, false)}
-                                                        className="bg-red-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-600 transition"
+                                                        className="px-6 py-3 rounded-lg font-medium transition"
+                                                        style={{ background: 'var(--color-error)', color: '#FFFFFF' }}
                                                     >
                                                         ❌ Didn't know
                                                     </button>
@@ -2171,10 +2204,10 @@
 
                                 {userScores[index] !== undefined && (
                                     <div className="mt-6 ml-16">
-                                        <div className="bg-white p-4 rounded-lg border border-green-200">
-                                            <p className="text-gray-700">{q.answer}</p>
+                                        <div className="p-4 rounded-lg border" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-success)' }}>
+                                            <p style={{ color: 'var(--color-text)' }}>{q.answer}</p>
                                         </div>
-                                        <p className={`mt-2 font-medium ${userScores[index] ? 'text-green-600' : 'text-red-600'}`}>
+                                        <p className="mt-2 font-medium" style={{ color: userScores[index] ? 'var(--color-success)' : 'var(--color-error)' }}>
                                             {userScores[index] ? '✅ You knew this!' : '❌ Keep practicing!'}
                                         </p>
                                     </div>
@@ -2187,24 +2220,24 @@
 
             return (
                 <div className="space-y-6">
-                    <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
-                        <h3 className="text-lg font-bold text-blue-800 mb-2">📖 Test Yourself</h3>
-                        <p className="text-blue-700">
+                    <div className="border-l-4 p-4 rounded-r-lg" style={{ background: 'rgba(212, 160, 23, 0.1)', borderColor: 'var(--color-accent)' }}>
+                        <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--color-accent)' }}>📖 Test Yourself</h3>
+                        <p style={{ color: 'var(--color-text-secondary)' }}>
                             These questions are from the Cambridge IGCSE Geography Study and Revision Guide (p.125-127).
                             Try to answer each question, then reveal and <b>type the answer to memorize it</b>!
                         </p>
                     </div>
 
                     {totalAnswered > 0 && (
-                        <div className="bg-gray-50 p-4 rounded-lg">
+                        <div className="p-4 rounded-lg" style={{ background: 'var(--color-bg-alt)' }}>
                             <div className="flex justify-between items-center">
-                                <span className="text-gray-600">Progress: {totalAnswered}/{questions.length}</span>
-                                <span className="font-semibold text-green-600">Score: {totalScore}/{totalAnswered}</span>
+                                <span style={{ color: 'var(--color-text-secondary)' }}>Progress: {totalAnswered}/{questions.length}</span>
+                                <span className="font-semibold" style={{ color: 'var(--color-success)' }}>Score: {totalScore}/{totalAnswered}</span>
                             </div>
-                            <div className="mt-2 bg-gray-200 rounded-full h-2">
+                            <div className="mt-2 rounded-full h-2" style={{ background: 'var(--color-border)' }}>
                                 <div
-                                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                                    style={{ width: `${(totalAnswered / questions.length) * 100}%` }}
+                                    className="h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${(totalAnswered / questions.length) * 100}%`, background: 'var(--color-success)' }}
                                 ></div>
                             </div>
                         </div>
@@ -2212,22 +2245,30 @@
 
                     <div className="space-y-4">
                         {questions.map((q, index) => (
-                            <div key={index} className={`border rounded-lg overflow-hidden ${
-                                userScores[index] !== undefined
-                                    ? (userScores[index] ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50')
-                                    : 'border-gray-200'
-                            }`}>
+                            <div
+                                key={index}
+                                className="border rounded-lg overflow-hidden"
+                                style={{
+                                    borderColor: userScores[index] !== undefined
+                                        ? (userScores[index] ? 'var(--color-success)' : 'var(--color-error)')
+                                        : 'var(--color-border)',
+                                    background: userScores[index] !== undefined
+                                        ? (userScores[index] ? 'rgba(45, 106, 79, 0.1)' : 'rgba(197, 48, 48, 0.1)')
+                                        : 'var(--color-surface)'
+                                }}
+                            >
                                 <div className="p-4">
                                     <div className="flex items-start space-x-3">
-                                        <span className="flex-shrink-0 w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-bold">
+                                        <span className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold" style={{ background: 'var(--color-success)', color: '#FFFFFF' }}>
                                             {q.number}
                                         </span>
                                         <div className="flex-grow">
-                                            <p className="text-gray-800 font-medium">{q.question}</p>
+                                            <p className="font-medium" style={{ color: 'var(--color-text)' }}>{q.question}</p>
                                         </div>
                                         <button
                                             onClick={() => setFocusedIndex(index)}
-                                            className="flex-shrink-0 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition"
+                                            className="flex-shrink-0 px-2 py-1 text-xs rounded transition"
+                                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                                             title="Focus on this question"
                                         >
                                             Focus →
@@ -2237,7 +2278,8 @@
                                     {!revealedAnswers[index] && userScores[index] === undefined && (
                                         <button
                                             onClick={() => toggleAnswer(index)}
-                                            className="mt-4 ml-11 text-green-600 hover:text-green-800 font-medium flex items-center space-x-1"
+                                            className="mt-4 ml-11 font-medium flex items-center space-x-1 transition"
+                                            style={{ color: 'var(--color-success)' }}
                                         >
                                             <span>👁️ Reveal Answer</span>
                                         </button>
@@ -2255,27 +2297,30 @@
                                                 />
                                             ) : (
                                                 <>
-                                                    <div className="bg-white p-4 rounded-lg border border-green-200">
-                                                        <p className="text-gray-700">{q.answer}</p>
+                                                    <div className="p-4 rounded-lg border" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-success)' }}>
+                                                        <p style={{ color: 'var(--color-text)' }}>{q.answer}</p>
                                                     </div>
 
                                                     <div className="mt-3 flex flex-wrap gap-3">
                                                         <button
                                                             onClick={() => startTyping(index)}
-                                                            className="bg-blue-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-600 transition flex items-center gap-2"
+                                                            className="px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+                                                            style={{ background: 'var(--color-primary)', color: '#FFFFFF' }}
                                                         >
                                                             ⌨️ Type to Memorize
                                                         </button>
                                                         <button
                                                             onClick={() => markScore(index, true)}
-                                                            className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 transition flex items-center space-x-2"
+                                                            className="px-4 py-2 rounded-lg font-medium transition flex items-center space-x-2"
+                                                            style={{ background: 'var(--color-success)', color: '#FFFFFF' }}
                                                         >
                                                             <span>✅</span>
                                                             <span>I knew this</span>
                                                         </button>
                                                         <button
                                                             onClick={() => markScore(index, false)}
-                                                            className="bg-red-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-red-600 transition flex items-center space-x-2"
+                                                            className="px-4 py-2 rounded-lg font-medium transition flex items-center space-x-2"
+                                                            style={{ background: 'var(--color-error)', color: '#FFFFFF' }}
                                                         >
                                                             <span>❌</span>
                                                             <span>Need to review</span>
@@ -2288,12 +2333,16 @@
 
                                     {userScores[index] !== undefined && (
                                         <div className="mt-4 ml-11">
-                                            <div className="bg-white p-4 rounded-lg border border-green-200 mb-2">
-                                                <p className="text-gray-700">{q.answer}</p>
+                                            <div className="p-4 rounded-lg border mb-2" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-success)' }}>
+                                                <p style={{ color: 'var(--color-text)' }}>{q.answer}</p>
                                             </div>
-                                            <div className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                                                userScores[index] ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'
-                                            }`}>
+                                            <div
+                                                className="inline-block px-3 py-1 rounded-full text-sm font-medium"
+                                                style={{
+                                                    background: userScores[index] ? 'rgba(45, 106, 79, 0.2)' : 'rgba(197, 48, 48, 0.2)',
+                                                    color: userScores[index] ? 'var(--color-success)' : 'var(--color-error)'
+                                                }}
+                                            >
                                                 {userScores[index] ? '✅ Correct!' : '❌ Review this'}
                                             </div>
                                         </div>
@@ -2303,7 +2352,7 @@
                         ))}
                     </div>
 
-                    <div className="text-center text-sm text-gray-400">
+                    <div className="text-center text-sm" style={{ color: 'var(--color-text-muted)' }}>
                         Source: Cambridge IGCSE and O Level Geography Study and Revision Guide (p.125-127)
                     </div>
                 </div>
@@ -2312,6 +2361,7 @@
 
         // Exam Practice Tab Component - Shows exam questions with model answers for this topic
         function ExamPracticeTab({ topicId, topicName, onNavigateToDocChat }) {
+            const { theme } = useContext(ThemeContext);
             const [questions, setQuestions] = useState([]);
             const [sampleAnswers, setSampleAnswers] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -2345,7 +2395,7 @@
                 return (
                     <div className="text-center py-12">
                         <span className="text-6xl">📝</span>
-                        <p className="mt-4 text-gray-500">No exam questions available for this topic yet.</p>
+                        <p className="mt-4" style={{ color: 'var(--color-text-muted)' }}>No exam questions available for this topic yet.</p>
                     </div>
                 );
             }
@@ -2356,41 +2406,63 @@
                     {questions.length > 0 && (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-gray-800">
+                                <h3 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
                                     📝 Exam-Style Questions ({questions.length})
                                 </h3>
                             </div>
 
                             {questions.map((q, index) => (
-                                <div key={q.id} className="border rounded-xl overflow-hidden bg-white shadow-sm">
+                                <div
+                                    key={q.id}
+                                    className="border rounded-xl overflow-hidden shadow-sm"
+                                    style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+                                >
                                     <div
-                                        className="p-4 cursor-pointer hover:bg-gray-50 transition"
+                                        className="p-4 cursor-pointer transition"
                                         onClick={() => setExpandedId(expandedId === q.id ? null : q.id)}
                                     >
                                         <div className="flex items-start justify-between">
                                             <div className="flex-grow">
                                                 <div className="flex items-center gap-2 mb-2">
-                                                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm font-medium">
+                                                    <span
+                                                        className="px-2 py-1 rounded text-sm font-medium"
+                                                        style={{
+                                                            background: theme === 'dark' ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE',
+                                                            color: theme === 'dark' ? '#93C5FD' : '#1D4ED8'
+                                                        }}
+                                                    >
                                                         {q.marks} marks
                                                     </span>
                                                     {q.command_word && (
-                                                        <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-sm">
+                                                        <span
+                                                            className="px-2 py-1 rounded text-sm"
+                                                            style={{
+                                                                background: theme === 'dark' ? 'rgba(139, 92, 246, 0.2)' : '#EDE9FE',
+                                                                color: theme === 'dark' ? '#A78BFA' : '#6D28D9'
+                                                            }}
+                                                        >
                                                             {q.command_word}
                                                         </span>
                                                     )}
                                                 </div>
-                                                <p className="text-gray-800 font-medium">{q.question_text}</p>
+                                                <p className="font-medium" style={{ color: 'var(--color-text)' }}>{q.question_text}</p>
                                             </div>
-                                            <span className="text-gray-400 text-xl ml-4">
+                                            <span className="text-xl ml-4" style={{ color: 'var(--color-text-muted)' }}>
                                                 {expandedId === q.id ? '▼' : '▶'}
                                             </span>
                                         </div>
                                     </div>
 
                                     {expandedId === q.id && (
-                                        <div className="border-t bg-green-50 p-4">
-                                            <h4 className="font-semibold text-green-800 mb-2">✅ Model Answer:</h4>
-                                            <p className="text-gray-700 whitespace-pre-line">{q.model_answer}</p>
+                                        <div
+                                            className="border-t p-4"
+                                            style={{
+                                                background: theme === 'dark' ? 'rgba(45, 106, 79, 0.15)' : '#F0FDF4',
+                                                borderColor: theme === 'dark' ? 'var(--color-border)' : '#BBF7D0'
+                                            }}
+                                        >
+                                            <h4 className="font-semibold mb-2" style={{ color: 'var(--color-success)' }}>✅ Model Answer:</h4>
+                                            <p className="whitespace-pre-line" style={{ color: 'var(--color-text)' }}>{q.model_answer}</p>
                                             <div className="mt-3 pt-3 border-t border-green-200 flex justify-end">
                                                 <button
                                                     onClick={(e) => {
@@ -2420,36 +2492,64 @@
                     {sampleAnswers.length > 0 && (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-gray-800">
+                                <h3 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
                                     📋 Sample Exam Questions with Student Answers ({sampleAnswers.length})
                                 </h3>
                             </div>
-                            <p className="text-sm text-gray-600 mb-4">
+                            <p className="text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
                                 Learn from real student answers and teacher feedback to understand how marks are awarded.
                             </p>
 
                             {sampleAnswers.map((sa, index) => (
-                                <div key={sa.id} className="border-2 border-amber-200 rounded-xl overflow-hidden bg-amber-50 shadow-sm">
+                                <div
+                                    key={sa.id}
+                                    className="border-2 rounded-xl overflow-hidden shadow-sm"
+                                    style={{
+                                        borderColor: theme === 'dark' ? 'rgba(245, 158, 11, 0.3)' : '#FDE68A',
+                                        background: theme === 'dark' ? 'rgba(245, 158, 11, 0.08)' : '#FFFBEB'
+                                    }}
+                                >
                                     <div
-                                        className="p-4 cursor-pointer hover:bg-amber-100 transition"
+                                        className="p-4 cursor-pointer transition"
+                                        style={{ ':hover': { background: theme === 'dark' ? 'rgba(245, 158, 11, 0.12)' : '#FEF3C7' } }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = theme === 'dark' ? 'rgba(245, 158, 11, 0.12)' : '#FEF3C7'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                         onClick={() => setExpandedSampleId(expandedSampleId === sa.id ? null : sa.id)}
                                     >
                                         <div className="flex items-start justify-between">
                                             <div className="flex-grow">
                                                 <div className="flex items-center gap-2 mb-2">
-                                                    <span className="px-2 py-1 bg-amber-200 text-amber-800 rounded text-sm font-medium">
+                                                    <span
+                                                        className="px-2 py-1 rounded text-sm font-medium"
+                                                        style={{
+                                                            background: theme === 'dark' ? 'rgba(245, 158, 11, 0.2)' : '#FDE68A',
+                                                            color: theme === 'dark' ? '#FCD34D' : '#92400E'
+                                                        }}
+                                                    >
                                                         {sa.marks} marks available
                                                     </span>
-                                                    <span className="px-2 py-1 bg-green-200 text-green-800 rounded text-sm font-medium">
+                                                    <span
+                                                        className="px-2 py-1 rounded text-sm font-medium"
+                                                        style={{
+                                                            background: theme === 'dark' ? 'rgba(45, 106, 79, 0.2)' : '#BBF7D0',
+                                                            color: theme === 'dark' ? '#86EFAC' : '#166534'
+                                                        }}
+                                                    >
                                                         {sa.marks_awarded}/{sa.marks} awarded
                                                     </span>
                                                     {sa.source_page && (
-                                                        <span className="px-2 py-1 bg-gray-200 text-gray-600 rounded text-xs">
+                                                        <span
+                                                            className="px-2 py-1 rounded text-xs"
+                                                            style={{
+                                                                background: 'var(--color-bg-alt)',
+                                                                color: 'var(--color-text-secondary)'
+                                                            }}
+                                                        >
                                                             {sa.source_page}
                                                         </span>
                                                     )}
                                                 </div>
-                                                <p className="text-gray-800 font-medium">{sa.question_text}</p>
+                                                <p className="font-medium" style={{ color: 'var(--color-text)' }}>{sa.question_text}</p>
                                             </div>
                                             <span className="text-amber-600 text-xl ml-4">
                                                 {expandedSampleId === sa.id ? '▼' : '▶'}
@@ -2458,19 +2558,43 @@
                                     </div>
 
                                     {expandedSampleId === sa.id && (
-                                        <div className="border-t border-amber-300">
+                                        <div
+                                            className="border-t"
+                                            style={{ borderColor: theme === 'dark' ? 'rgba(245, 158, 11, 0.3)' : '#FCD34D' }}
+                                        >
                                             {/* Student Answer */}
-                                            <div className="bg-blue-50 p-4 border-b border-amber-200">
-                                                <h4 className="font-semibold text-blue-800 mb-2">👤 Student's Answer:</h4>
-                                                <p className="text-gray-700 whitespace-pre-line">{sa.student_answer}</p>
+                                            <div
+                                                className="p-4 border-b"
+                                                style={{
+                                                    background: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF',
+                                                    borderColor: theme === 'dark' ? 'rgba(245, 158, 11, 0.2)' : '#FDE68A'
+                                                }}
+                                            >
+                                                <h4
+                                                    className="font-semibold mb-2"
+                                                    style={{ color: theme === 'dark' ? '#93C5FD' : '#1E40AF' }}
+                                                >👤 Student's Answer:</h4>
+                                                <p className="whitespace-pre-line" style={{ color: 'var(--color-text)' }}>{sa.student_answer}</p>
                                             </div>
 
                                             {/* Teacher Comments */}
-                                            <div className="bg-green-50 p-4">
-                                                <h4 className="font-semibold text-green-800 mb-2">👨‍🏫 Teacher's Comments:</h4>
-                                                <p className="text-gray-700 whitespace-pre-line">{sa.teacher_comments}</p>
-                                                <div className="mt-3 pt-3 border-t border-green-200 flex items-center justify-between">
-                                                    <span className="text-sm font-medium text-green-700">
+                                            <div
+                                                className="p-4"
+                                                style={{ background: theme === 'dark' ? 'rgba(45, 106, 79, 0.1)' : '#F0FDF4' }}
+                                            >
+                                                <h4
+                                                    className="font-semibold mb-2"
+                                                    style={{ color: theme === 'dark' ? '#86EFAC' : '#166534' }}
+                                                >👨‍🏫 Teacher's Comments:</h4>
+                                                <p className="whitespace-pre-line" style={{ color: 'var(--color-text)' }}>{sa.teacher_comments}</p>
+                                                <div
+                                                    className="mt-3 pt-3 border-t flex items-center justify-between"
+                                                    style={{ borderColor: theme === 'dark' ? 'rgba(45, 106, 79, 0.3)' : '#BBF7D0' }}
+                                                >
+                                                    <span
+                                                        className="text-sm font-medium"
+                                                        style={{ color: theme === 'dark' ? '#86EFAC' : '#15803D' }}
+                                                    >
                                                         Marks Awarded: {sa.marks_awarded} out of {sa.marks}
                                                     </span>
                                                     <button
@@ -2482,7 +2606,11 @@
                                                                 comments: sa.teacher_comments
                                                             }, 'sample_question');
                                                         }}
-                                                        className="p-2 bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 transition"
+                                                        className="p-2 rounded-lg transition"
+                                                        style={{
+                                                            background: theme === 'dark' ? 'rgba(20, 184, 166, 0.15)' : '#CCFBF1',
+                                                            color: theme === 'dark' ? '#5EEAD4' : '#0F766E'
+                                                        }}
                                                         title="Search in study materials"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2498,7 +2626,7 @@
                         </div>
                     )}
 
-                    <div className="text-center text-sm text-gray-400 mt-6">
+                    <div className="text-center text-sm mt-6" style={{ color: 'var(--color-text-muted)' }}>
                         Practice these questions to prepare for your exam
                     </div>
 
@@ -2516,6 +2644,7 @@
 
         // Study Tips Tab Component - Shows tips and common errors for this topic
         function StudyTipsTab({ topicId, onNavigateToDocChat }) {
+            const { theme } = useContext(ThemeContext);
             const [tips, setTips] = useState([]);
             const [errors, setErrors] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -2551,7 +2680,7 @@
                 return (
                     <div className="text-center py-12">
                         <span className="text-6xl">💡</span>
-                        <p className="mt-4 text-gray-500">No tips or common errors available for this topic yet.</p>
+                        <p className="mt-4" style={{ color: 'var(--color-text-muted)' }}>No tips or common errors available for this topic yet.</p>
                     </div>
                 );
             }
@@ -2559,24 +2688,24 @@
             return (
                 <div className="space-y-6">
                     {/* Section Tabs */}
-                    <div className="flex gap-4 border-b">
+                    <div className="flex gap-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
                         <button
                             onClick={() => setActiveSection('tips')}
-                            className={`pb-2 px-4 font-medium transition ${
-                                activeSection === 'tips'
-                                    ? 'border-b-2 border-green-500 text-green-600'
-                                    : 'text-gray-500 hover:text-gray-700'
-                            }`}
+                            className="pb-2 px-4 font-medium transition"
+                            style={{
+                                borderBottom: activeSection === 'tips' ? '2px solid var(--color-success)' : 'none',
+                                color: activeSection === 'tips' ? 'var(--color-success)' : 'var(--color-text-muted)'
+                            }}
                         >
                             💡 Tips ({tips.length})
                         </button>
                         <button
                             onClick={() => setActiveSection('errors')}
-                            className={`pb-2 px-4 font-medium transition ${
-                                activeSection === 'errors'
-                                    ? 'border-b-2 border-red-500 text-red-600'
-                                    : 'text-gray-500 hover:text-gray-700'
-                            }`}
+                            className="pb-2 px-4 font-medium transition"
+                            style={{
+                                borderBottom: activeSection === 'errors' ? '2px solid #EF4444' : 'none',
+                                color: activeSection === 'errors' ? '#EF4444' : 'var(--color-text-muted)'
+                            }}
                         >
                             ⚠️ Common Errors ({errors.length})
                         </button>
@@ -2586,19 +2715,36 @@
                     {activeSection === 'tips' && (
                         <div className="space-y-3">
                             {tips.length === 0 ? (
-                                <p className="text-gray-500 text-center py-4">No tips available for this topic.</p>
+                                <p className="text-center py-4" style={{ color: 'var(--color-text-muted)' }}>No tips available for this topic.</p>
                             ) : (
                                 tips.map((tip, index) => (
-                                    <div key={tip.id} className="flex items-start gap-3 p-4 bg-green-50 rounded-lg border border-green-200">
+                                    <div
+                                        key={tip.id}
+                                        className="flex items-start gap-3 p-4 rounded-lg border"
+                                        style={{
+                                            background: theme === 'dark' ? 'rgba(45, 106, 79, 0.1)' : '#F0FDF4',
+                                            borderColor: theme === 'dark' ? 'rgba(45, 106, 79, 0.3)' : '#BBF7D0'
+                                        }}
+                                    >
                                         <span className="text-2xl">💡</span>
                                         <div className="flex-1">
                                             <div className="flex items-center justify-between mb-1">
-                                                <span className="inline-block px-2 py-0.5 bg-green-200 text-green-800 rounded text-xs">
+                                                <span
+                                                    className="inline-block px-2 py-0.5 rounded text-xs"
+                                                    style={{
+                                                        background: theme === 'dark' ? 'rgba(45, 106, 79, 0.3)' : '#BBF7D0',
+                                                        color: 'var(--color-success)'
+                                                    }}
+                                                >
                                                     {tip.tip_type === 'exam' ? 'Exam Tip' : 'Study Tip'}
                                                 </span>
                                                 <button
                                                     onClick={() => openRAGModal({ text: tip.tip_text }, 'tip')}
-                                                    className="p-1.5 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition"
+                                                    className="p-1.5 rounded transition"
+                                                    style={{
+                                                        background: theme === 'dark' ? 'rgba(20, 184, 166, 0.2)' : '#CCFBF1',
+                                                        color: '#14B8A6'
+                                                    }}
                                                     title="Search in study materials"
                                                 >
                                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2606,7 +2752,7 @@
                                                     </svg>
                                                 </button>
                                             </div>
-                                            <p className="text-gray-700">{tip.tip_text}</p>
+                                            <p style={{ color: 'var(--color-text)' }}>{tip.tip_text}</p>
                                         </div>
                                     </div>
                                 ))
@@ -2618,21 +2764,32 @@
                     {activeSection === 'errors' && (
                         <div className="space-y-3">
                             {errors.length === 0 ? (
-                                <p className="text-gray-500 text-center py-4">No common errors listed for this topic.</p>
+                                <p className="text-center py-4" style={{ color: 'var(--color-text-muted)' }}>No common errors listed for this topic.</p>
                             ) : (
                                 errors.map((error, index) => (
-                                    <div key={error.id} className="p-4 bg-red-50 rounded-lg border border-red-200">
+                                    <div
+                                        key={error.id}
+                                        className="p-4 rounded-lg border"
+                                        style={{
+                                            background: theme === 'dark' ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
+                                            borderColor: theme === 'dark' ? 'rgba(239, 68, 68, 0.3)' : '#FECACA'
+                                        }}
+                                    >
                                         <div className="flex items-start gap-3">
                                             <span className="text-2xl">⚠️</span>
                                             <div className="flex-1">
                                                 <div className="flex items-start justify-between">
-                                                    <p className="text-red-800 font-medium">{error.error_description}</p>
+                                                    <p className="text-red-500 font-medium">{error.error_description}</p>
                                                     <button
                                                         onClick={() => openRAGModal({
                                                             error: error.error_description,
                                                             explanation: error.why_wrong
                                                         }, 'common_error')}
-                                                        className="ml-2 p-1.5 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition flex-shrink-0"
+                                                        className="ml-2 p-1.5 rounded transition flex-shrink-0"
+                                                        style={{
+                                                            background: theme === 'dark' ? 'rgba(20, 184, 166, 0.2)' : '#CCFBF1',
+                                                            color: '#14B8A6'
+                                                        }}
                                                         title="Search in study materials"
                                                     >
                                                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2641,7 +2798,7 @@
                                                     </button>
                                                 </div>
                                                 {error.why_wrong && (
-                                                    <p className="text-gray-600 mt-2 text-sm">
+                                                    <p className="mt-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                                                         <span className="font-medium">Why it's wrong:</span> {error.why_wrong}
                                                     </p>
                                                 )}
@@ -2667,6 +2824,7 @@
 
         // Quiz Tab Component - ENHANCED with Type to Review
         function QuizTab({ questions, topicId, typingSettings, startIndex = 0, onStartIndexUsed }) {
+            const { theme } = useContext(ThemeContext);
             const [currentIndex, setCurrentIndex] = useState(startIndex);
             const [answer, setAnswer] = useState('');
             const [result, setResult] = useState(null);
@@ -2764,7 +2922,7 @@
             };
 
             if (!questions.length) {
-                return <div className="text-center py-8 text-gray-500">No questions available for this topic.</div>;
+                return <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>No questions available for this topic.</div>;
             }
 
             // Type Mode - shows question and model answer for typing practice
@@ -2775,7 +2933,8 @@
                         <div className="flex justify-center gap-2 mb-6">
                             <button
                                 onClick={() => setQuizMode('quiz')}
-                                className="px-4 py-2 rounded-lg font-medium transition bg-gray-100 text-gray-600 hover:bg-gray-200"
+                                className="px-4 py-2 rounded-lg font-medium transition"
+                                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                             >
                                 Quiz Mode
                             </button>
@@ -2792,37 +2951,51 @@
                             <button
                                 onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
                                 disabled={currentIndex === 0}
-                                className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                className="px-3 py-1 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                             >
                                 ← Prev
                             </button>
-                            <span className="text-gray-500">
+                            <span style={{ color: 'var(--color-text-muted)' }}>
                                 Question {currentIndex + 1} of {questions.length}
                             </span>
                             <button
                                 onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}
                                 disabled={currentIndex >= questions.length - 1}
-                                className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                className="px-3 py-1 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                             >
                                 Next →
                             </button>
                         </div>
 
                         <div className="flex justify-end mb-4">
-                            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+                            <span
+                                className="px-3 py-1 rounded-full text-sm font-medium"
+                                style={{
+                                    background: theme === 'dark' ? 'rgba(45, 106, 79, 0.2)' : '#DCFCE7',
+                                    color: 'var(--color-success)'
+                                }}
+                            >
                                 {current.assessment_objective || 'AO1'} • {current.marks} mark{current.marks > 1 ? 's' : ''}
                             </span>
                         </div>
 
                         {/* Question */}
-                        <div className="bg-gray-50 p-6 rounded-lg mb-6">
-                            <h3 className="text-lg font-medium text-gray-800">{current.question_text}</h3>
+                        <div className="p-6 rounded-lg mb-6" style={{ background: 'var(--color-bg-alt)' }}>
+                            <h3 className="text-lg font-medium" style={{ color: 'var(--color-text)' }}>{current.question_text}</h3>
                         </div>
 
                         {/* Model Answer for Typing */}
-                        <div className="bg-blue-50 p-4 rounded-lg mb-4">
-                            <div className="text-sm text-blue-600 font-medium mb-2">Model Answer to Practice:</div>
-                            <div className="text-gray-800">{current.mark_scheme || current.model_answer || 'No model answer available.'}</div>
+                        <div
+                            className="p-4 rounded-lg mb-4 border"
+                            style={{
+                                background: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF',
+                                borderColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.3)' : '#BFDBFE'
+                            }}
+                        >
+                            <div className="text-sm text-blue-500 font-medium mb-2">Model Answer to Practice:</div>
+                            <div style={{ color: 'var(--color-text)' }}>{current.mark_scheme || current.model_answer || 'No model answer available.'}</div>
                         </div>
 
                         {/* Typing Practice */}
@@ -2839,7 +3012,13 @@
                                 label="Model Answer"
                             />
                         ) : (
-                            <div className="bg-yellow-50 p-4 rounded-lg text-yellow-700">
+                            <div
+                                className="p-4 rounded-lg"
+                                style={{
+                                    background: theme === 'dark' ? 'rgba(234, 179, 8, 0.1)' : '#FEFCE8',
+                                    color: '#CA8A04'
+                                }}
+                            >
                                 Enable Typing Practice in Settings to practice typing answers.
                             </div>
                         )}
@@ -2852,11 +3031,11 @@
                 return (
                     <div className="text-center py-8">
                         <div className="text-6xl mb-4">{percentage >= 70 ? '🌟' : percentage >= 50 ? '👍' : '📚'}</div>
-                        <h3 className="text-2xl font-bold text-gray-800 mb-2">Quiz Complete!</h3>
-                        <p className="text-xl text-gray-600 mb-2">
+                        <h3 className="text-2xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>Quiz Complete!</h3>
+                        <p className="text-xl mb-2" style={{ color: 'var(--color-text-secondary)' }}>
                             Score: {stats.marks}/{stats.maxMarks} marks ({percentage}%)
                         </p>
-                        <p className="text-gray-500 mb-6">
+                        <p className="mb-6" style={{ color: 'var(--color-text-muted)' }}>
                             {stats.correct} of {stats.total} questions correct
                         </p>
                         <button
@@ -2881,7 +3060,8 @@
                         </button>
                         <button
                             onClick={() => setQuizMode('type')}
-                            className="px-4 py-2 rounded-lg font-medium transition bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            className="px-4 py-2 rounded-lg font-medium transition"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                         >
                             Type Mode
                         </button>
@@ -2892,30 +3072,38 @@
                         <button
                             onClick={previousQuestion}
                             disabled={currentIndex === 0}
-                            className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            className="px-3 py-1 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                         >
                             ← Prev
                         </button>
-                        <span className="text-gray-500">
+                        <span style={{ color: 'var(--color-text-muted)' }}>
                             Question {currentIndex + 1} of {questions.length}
                         </span>
                         <button
                             onClick={nextQuestion}
                             disabled={currentIndex >= questions.length - 1 || !result}
-                            className="px-3 py-1 bg-gray-200 rounded-lg text-gray-700 hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            className="px-3 py-1 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition"
+                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                         >
                             Next →
                         </button>
                     </div>
 
                     <div className="flex justify-end mb-4">
-                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+                        <span
+                            className="px-3 py-1 rounded-full text-sm font-medium"
+                            style={{
+                                background: theme === 'dark' ? 'rgba(45, 106, 79, 0.2)' : '#DCFCE7',
+                                color: 'var(--color-success)'
+                            }}
+                        >
                             {current.assessment_objective || 'AO1'} • {current.marks} mark{current.marks > 1 ? 's' : ''}
                         </span>
                     </div>
 
-                    <div className="bg-gray-50 p-6 rounded-lg mb-6">
-                        <h3 className="text-lg font-medium text-gray-800">{current.question_text}</h3>
+                    <div className="p-6 rounded-lg mb-6" style={{ background: 'var(--color-bg-alt)' }}>
+                        <h3 className="text-lg font-medium" style={{ color: 'var(--color-text)' }}>{current.question_text}</h3>
                     </div>
 
                     {!result ? (
@@ -2925,11 +3113,22 @@
                                 onChange={(e) => setAnswer(e.target.value)}
                                 placeholder="Type your answer here..."
                                 className="w-full p-4 border rounded-lg mb-4 h-32 focus:ring-2 focus:ring-green-500 focus:outline-none"
+                                style={{
+                                    background: 'var(--color-surface)',
+                                    color: 'var(--color-text)',
+                                    borderColor: 'var(--color-border)'
+                                }}
                             />
 
                             {hint && (
-                                <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-4">
-                                    <span className="text-yellow-700">💡 Hint: {hint}</span>
+                                <div
+                                    className="p-4 rounded-lg mb-4 border"
+                                    style={{
+                                        background: theme === 'dark' ? 'rgba(234, 179, 8, 0.1)' : '#FEFCE8',
+                                        borderColor: theme === 'dark' ? 'rgba(234, 179, 8, 0.3)' : '#FDE68A'
+                                    }}
+                                >
+                                    <span className="text-yellow-500">💡 Hint: {hint}</span>
                                 </div>
                             )}
 
@@ -2937,7 +3136,7 @@
                                 <button
                                     onClick={getHint}
                                     disabled={hintLevel >= 3}
-                                    className="text-yellow-600 hover:text-yellow-800 disabled:opacity-50"
+                                    className="text-yellow-500 hover:text-yellow-400 disabled:opacity-50"
                                 >
                                     {hintLevel === 0 ? '💡 Get Hint' : `💡 More Hints (${3 - hintLevel} left)`}
                                 </button>
@@ -2953,38 +3152,57 @@
                         </>
                     ) : (
                         <div className="space-y-4">
-                            <div className={`p-4 rounded-lg ${result.is_correct ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                            <div
+                                className="p-4 rounded-lg border"
+                                style={{
+                                    background: result.is_correct
+                                        ? (theme === 'dark' ? 'rgba(45, 106, 79, 0.15)' : '#F0FDF4')
+                                        : (theme === 'dark' ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2'),
+                                    borderColor: result.is_correct
+                                        ? (theme === 'dark' ? 'rgba(45, 106, 79, 0.3)' : '#BBF7D0')
+                                        : (theme === 'dark' ? 'rgba(239, 68, 68, 0.3)' : '#FECACA')
+                                }}
+                            >
                                 <div className="flex items-center mb-2">
                                     <span className="text-2xl mr-2">{result.is_correct ? '✅' : '❌'}</span>
-                                    <span className="font-bold text-lg">
+                                    <span className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>
                                         {result.marks_awarded}/{result.marks_possible} marks
                                     </span>
                                 </div>
-                                <p className="text-gray-700">{result.feedback}</p>
+                                <p style={{ color: 'var(--color-text)' }}>{result.feedback}</p>
                             </div>
 
                             {result.correct_points?.length > 0 && (
-                                <div className="bg-green-50 p-4 rounded-lg">
-                                    <h4 className="font-semibold text-green-700 mb-2">✓ Correct Points:</h4>
-                                    <ul className="list-disc list-inside text-green-600">
+                                <div
+                                    className="p-4 rounded-lg"
+                                    style={{ background: theme === 'dark' ? 'rgba(45, 106, 79, 0.15)' : '#F0FDF4' }}
+                                >
+                                    <h4 className="font-semibold mb-2" style={{ color: 'var(--color-success)' }}>✓ Correct Points:</h4>
+                                    <ul className="list-disc list-inside" style={{ color: 'var(--color-success)' }}>
                                         {result.correct_points.map((p, i) => <li key={i}>{p}</li>)}
                                     </ul>
                                 </div>
                             )}
 
                             {result.missing_points?.length > 0 && (
-                                <div className="bg-red-50 p-4 rounded-lg">
-                                    <h4 className="font-semibold text-red-700 mb-2">✗ Missing Points:</h4>
-                                    <ul className="list-disc list-inside text-red-600">
+                                <div
+                                    className="p-4 rounded-lg"
+                                    style={{ background: theme === 'dark' ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2' }}
+                                >
+                                    <h4 className="font-semibold text-red-500 mb-2">✗ Missing Points:</h4>
+                                    <ul className="list-disc list-inside text-red-400">
                                         {result.missing_points.map((p, i) => <li key={i}>{p}</li>)}
                                     </ul>
                                 </div>
                             )}
 
                             {/* Model Answer with Type to Memorize */}
-                            <div className="bg-blue-50 p-4 rounded-lg">
+                            <div
+                                className="p-4 rounded-lg"
+                                style={{ background: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF' }}
+                            >
                                 <div className="flex items-center justify-between mb-2">
-                                    <h4 className="font-semibold text-blue-700">📝 Model Answer:</h4>
+                                    <h4 className="font-semibold text-blue-500">📝 Model Answer:</h4>
                                     {!isTypingReview && (
                                         <button
                                             onClick={() => setIsTypingReview(true)}
@@ -3004,14 +3222,17 @@
                                         label="Model Answer"
                                     />
                                 ) : (
-                                    <p className="text-gray-700">{result.model_answer}</p>
+                                    <p style={{ color: 'var(--color-text)' }}>{result.model_answer}</p>
                                 )}
                             </div>
 
                             {result.teacher_comment && (
-                                <div className="bg-purple-50 p-4 rounded-lg">
-                                    <h4 className="font-semibold text-purple-700 mb-2">👩‍🏫 Teacher Comment:</h4>
-                                    <p className="text-gray-700">{result.teacher_comment}</p>
+                                <div
+                                    className="p-4 rounded-lg"
+                                    style={{ background: theme === 'dark' ? 'rgba(139, 92, 246, 0.1)' : '#FAF5FF' }}
+                                >
+                                    <h4 className="font-semibold text-purple-500 mb-2">👩‍🏫 Teacher Comment:</h4>
+                                    <p style={{ color: 'var(--color-text)' }}>{result.teacher_comment}</p>
                                 </div>
                             )}
 
@@ -3039,6 +3260,7 @@
 
         // Progress View Component
         function ProgressView() {
+            const { theme } = useContext(ThemeContext);
             const [progress, setProgress] = useState(null);
             const [loading, setLoading] = useState(true);
 
@@ -3055,61 +3277,61 @@
 
             return (
                 <div className="max-w-6xl mx-auto p-6">
-                    <h2 className="text-3xl font-bold text-gray-800 mb-6">📊 Your Progress</h2>
+                    <h2 className="text-3xl font-bold mb-6" style={{ color: 'var(--color-text)' }}>📊 Your Progress</h2>
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                        <div className="p-6 rounded-xl shadow-lg" style={{ background: 'var(--color-surface)' }}>
                             <div className="text-4xl mb-2">📝</div>
-                            <div className="text-3xl font-bold text-gray-800">{overall.questions_attempted || 0}</div>
-                            <div className="text-gray-500">Questions Attempted</div>
+                            <div className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>{overall.questions_attempted || 0}</div>
+                            <div style={{ color: 'var(--color-text-muted)' }}>Questions Attempted</div>
                         </div>
 
-                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                        <div className="p-6 rounded-xl shadow-lg" style={{ background: 'var(--color-surface)' }}>
                             <div className="text-4xl mb-2">✅</div>
-                            <div className="text-3xl font-bold text-green-600">{overall.questions_correct || 0}</div>
-                            <div className="text-gray-500">Correct Answers</div>
+                            <div className="text-3xl font-bold" style={{ color: 'var(--color-success)' }}>{overall.questions_correct || 0}</div>
+                            <div style={{ color: 'var(--color-text-muted)' }}>Correct Answers</div>
                         </div>
 
-                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                        <div className="p-6 rounded-xl shadow-lg" style={{ background: 'var(--color-surface)' }}>
                             <div className="text-4xl mb-2">🎯</div>
-                            <div className="text-3xl font-bold text-blue-600">{overall.accuracy || 0}%</div>
-                            <div className="text-gray-500">Accuracy Rate</div>
+                            <div className="text-3xl font-bold" style={{ color: 'var(--color-primary)' }}>{overall.accuracy || 0}%</div>
+                            <div style={{ color: 'var(--color-text-muted)' }}>Accuracy Rate</div>
                         </div>
 
-                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                        <div className="p-6 rounded-xl shadow-lg" style={{ background: 'var(--color-surface)' }}>
                             <div className="text-4xl mb-2">🃏</div>
-                            <div className="text-3xl font-bold text-purple-600">{overall.definitions_studied || 0}</div>
-                            <div className="text-gray-500">Definitions Studied</div>
+                            <div className="text-3xl font-bold" style={{ color: 'var(--color-accent)' }}>{overall.definitions_studied || 0}</div>
+                            <div style={{ color: 'var(--color-text-muted)' }}>Definitions Studied</div>
                         </div>
                     </div>
 
                     {progress?.weak_points_count > 0 && (
-                        <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg mb-6">
-                            <span className="text-yellow-700">
+                        <div className="p-4 rounded-lg mb-6" style={{ background: 'rgba(212, 160, 23, 0.15)', border: '1px solid var(--color-accent)' }}>
+                            <span style={{ color: 'var(--color-accent)' }}>
                                 ⚠️ You have {progress.weak_points_count} weak point{progress.weak_points_count > 1 ? 's' : ''} to work on.
                                 Check the Weak Points section!
                             </span>
                         </div>
                     )}
 
-                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-                        <h3 className="text-xl font-bold text-gray-800 p-6 border-b">Progress by Topic</h3>
+                    <div className="rounded-xl shadow-lg overflow-hidden" style={{ background: 'var(--color-surface)' }}>
+                        <h3 className="text-xl font-bold p-6" style={{ color: 'var(--color-text)', borderBottom: '1px solid var(--color-border)' }}>Progress by Topic</h3>
 
-                        <div className="divide-y">
+                        <div style={{ borderColor: 'var(--color-border)' }}>
                             {progress?.by_topic?.map((item, i) => (
-                                <div key={i} className="p-4 flex items-center justify-between">
+                                <div key={i} className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--color-border)' }}>
                                     <div>
-                                        <span className="font-semibold text-green-600">{item.topic_number}</span>
-                                        <span className="ml-2 text-gray-700">{item.topic_name}</span>
+                                        <span className="font-semibold" style={{ color: 'var(--color-success)' }}>{item.topic_number}</span>
+                                        <span className="ml-2" style={{ color: 'var(--color-text)' }}>{item.topic_name}</span>
                                     </div>
                                     <div className="flex items-center space-x-6">
-                                        <div className="text-sm text-gray-500">
+                                        <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
                                             {item.questions_correct}/{item.questions_attempted} correct
                                         </div>
-                                        <div className="w-32 bg-gray-200 rounded-full h-2">
+                                        <div className="w-32 rounded-full h-2" style={{ background: 'var(--color-border)' }}>
                                             <div
-                                                className="bg-green-500 h-2 rounded-full"
-                                                style={{ width: `${item.questions_attempted > 0 ? (item.questions_correct / item.questions_attempted * 100) : 0}%` }}
+                                                className="h-2 rounded-full"
+                                                style={{ width: `${item.questions_attempted > 0 ? (item.questions_correct / item.questions_attempted * 100) : 0}%`, background: 'var(--color-success)' }}
                                             />
                                         </div>
                                     </div>
@@ -3117,7 +3339,7 @@
                             ))}
 
                             {(!progress?.by_topic || progress.by_topic.length === 0) && (
-                                <div className="p-8 text-center text-gray-500">
+                                <div className="p-8 text-center" style={{ color: 'var(--color-text-muted)' }}>
                                     No progress yet. Start studying to track your learning!
                                 </div>
                             )}
@@ -3129,6 +3351,7 @@
 
         // Weak Points View Component
         function WeakPointsView() {
+            const { theme } = useContext(ThemeContext);
             const [data, setData] = useState(null);
             const [loading, setLoading] = useState(true);
 
@@ -3145,45 +3368,45 @@
 
             return (
                 <div className="max-w-6xl mx-auto p-6">
-                    <h2 className="text-3xl font-bold text-gray-800 mb-6">🎯 Weak Points</h2>
+                    <h2 className="text-3xl font-bold mb-6" style={{ color: 'var(--color-text)' }}>🎯 Weak Points</h2>
 
                     {data?.analysis && (
-                        <div className="bg-blue-50 border border-blue-200 p-6 rounded-xl mb-6">
-                            <h3 className="font-bold text-blue-700 mb-2">🤖 AI Analysis</h3>
-                            <p className="text-gray-700 whitespace-pre-line">{data.analysis}</p>
+                        <div className="p-6 rounded-xl mb-6" style={{ background: 'rgba(212, 160, 23, 0.1)', border: '1px solid var(--color-accent)' }}>
+                            <h3 className="font-bold mb-2" style={{ color: 'var(--color-accent)' }}>🤖 AI Analysis</h3>
+                            <p className="whitespace-pre-line" style={{ color: 'var(--color-text)' }}>{data.analysis}</p>
                         </div>
                     )}
 
                     {weakPoints.length === 0 ? (
-                        <div className="bg-green-50 p-8 rounded-xl text-center">
+                        <div className="p-8 rounded-xl text-center" style={{ background: 'rgba(45, 106, 79, 0.1)' }}>
                             <div className="text-6xl mb-4">🌟</div>
-                            <h3 className="text-xl font-bold text-gray-800">No weak points!</h3>
-                            <p className="text-gray-600">Keep up the great work!</p>
+                            <h3 className="text-xl font-bold" style={{ color: 'var(--color-text)' }}>No weak points!</h3>
+                            <p style={{ color: 'var(--color-text-secondary)' }}>Keep up the great work!</p>
                         </div>
                     ) : (
                         <div className="grid gap-4">
                             {weakPoints.map((wp, i) => (
-                                <div key={i} className="bg-white p-4 rounded-xl shadow-lg border-l-4 border-red-500">
+                                <div key={i} className="p-4 rounded-xl shadow-lg border-l-4" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-error)' }}>
                                     <div className="flex justify-between items-start mb-2">
-                                        <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-sm">
+                                        <span className="px-2 py-1 rounded text-sm" style={{ background: 'rgba(197, 48, 48, 0.15)', color: 'var(--color-error)' }}>
                                             {wp.failure_count}x incorrect
                                         </span>
-                                        <span className="text-gray-500 text-sm">{wp.topic}</span>
+                                        <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{wp.topic}</span>
                                     </div>
 
                                     {wp.type === 'definition' && (
                                         <div>
-                                            <p className="font-semibold text-gray-800">{wp.term}</p>
-                                            <p className="text-gray-600">{wp.definition}</p>
+                                            <p className="font-semibold" style={{ color: 'var(--color-text)' }}>{wp.term}</p>
+                                            <p style={{ color: 'var(--color-text-secondary)' }}>{wp.definition}</p>
                                         </div>
                                     )}
 
                                     {wp.type === 'question' && (
                                         <div>
-                                            <p className="font-semibold text-gray-800">{wp.question}</p>
+                                            <p className="font-semibold" style={{ color: 'var(--color-text)' }}>{wp.question}</p>
                                             <details className="mt-2">
-                                                <summary className="text-green-600 cursor-pointer">Show model answer</summary>
-                                                <p className="text-gray-600 mt-2">{wp.model_answer}</p>
+                                                <summary className="cursor-pointer" style={{ color: 'var(--color-success)' }}>Show model answer</summary>
+                                                <p className="mt-2" style={{ color: 'var(--color-text-secondary)' }}>{wp.model_answer}</p>
                                             </details>
                                         </div>
                                     )}
@@ -3197,6 +3420,7 @@
 
         // Settings View Component - ENHANCED with Typing Settings
         function SettingsView({ typingSettings, onTypingSettingsChange }) {
+            const { theme } = useContext(ThemeContext);
             const [settings, setSettings] = useState(null);
             const [models, setModels] = useState({});
             const [loading, setLoading] = useState(true);
@@ -3327,27 +3551,27 @@
 
             return (
                 <div className="max-w-5xl mx-auto p-6">
-                    <h2 className="text-3xl font-bold text-gray-800 mb-6">⚙️ Settings</h2>
+                    <h2 className="text-3xl font-bold mb-6" style={{ color: 'var(--color-text)' }}>⚙️ Settings</h2>
 
                     {/* Section Tabs */}
                     <div className="flex gap-2 mb-6">
                         <button
                             onClick={() => setActiveSection('ai')}
-                            className={`px-4 py-2 rounded-lg font-medium transition ${
-                                activeSection === 'ai'
-                                    ? 'bg-green-500 text-white'
-                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
+                            className="px-4 py-2 rounded-lg font-medium transition"
+                            style={{
+                                background: activeSection === 'ai' ? 'var(--color-success)' : 'var(--color-bg-alt)',
+                                color: activeSection === 'ai' ? '#FFFFFF' : 'var(--color-text-secondary)'
+                            }}
                         >
                             🤖 AI Providers
                         </button>
                         <button
                             onClick={() => setActiveSection('typing')}
-                            className={`px-4 py-2 rounded-lg font-medium transition ${
-                                activeSection === 'typing'
-                                    ? 'bg-green-500 text-white'
-                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}
+                            className="px-4 py-2 rounded-lg font-medium transition"
+                            style={{
+                                background: activeSection === 'typing' ? 'var(--color-success)' : 'var(--color-bg-alt)',
+                                color: activeSection === 'typing' ? '#FFFFFF' : 'var(--color-text-secondary)'
+                            }}
                         >
                             ⌨️ Typing Practice
                         </button>
@@ -3362,23 +3586,30 @@
                                 const providerModels = models[provider.id] || [];
 
                                 return (
-                                    <div key={provider.id} className={`bg-white rounded-xl shadow-lg p-6 border-2 ${isDefault ? 'border-green-500' : 'border-transparent'}`}>
+                                    <div
+                                        key={provider.id}
+                                        className="rounded-xl shadow-lg p-6 border-2"
+                                        style={{
+                                            background: 'var(--color-surface)',
+                                            borderColor: isDefault ? 'var(--color-success)' : 'transparent'
+                                        }}
+                                    >
                                         <div className="flex items-center justify-between mb-4">
                                             <div className="flex items-center space-x-3">
                                                 <span className="text-3xl">{provider.icon}</span>
                                                 <div>
-                                                    <h3 className="text-xl font-bold text-gray-800">{provider.name}</h3>
-                                                    <span className="text-sm text-gray-500">{provider.company}</span>
+                                                    <h3 className="text-xl font-bold" style={{ color: 'var(--color-text)' }}>{provider.name}</h3>
+                                                    <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{provider.company}</span>
                                                 </div>
-                                                {isValidated && <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-sm">✓ Connected</span>}
+                                                {isValidated && <span className="px-2 py-1 rounded text-sm" style={{ background: 'rgba(45, 106, 79, 0.15)', color: 'var(--color-success)' }}>✓ Connected</span>}
                                             </div>
                                             <button
                                                 onClick={() => handleSetDefault(provider.id)}
-                                                className={`px-4 py-2 rounded-lg font-medium transition ${
-                                                    isDefault
-                                                        ? 'bg-green-500 text-white'
-                                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                }`}
+                                                className="px-4 py-2 rounded-lg font-medium transition"
+                                                style={{
+                                                    background: isDefault ? 'var(--color-success)' : 'var(--color-bg-alt)',
+                                                    color: isDefault ? '#FFFFFF' : 'var(--color-text-secondary)'
+                                                }}
                                             >
                                                 {isDefault ? '★ Default' : 'Set as Default'}
                                             </button>
@@ -3386,7 +3617,7 @@
 
                                         <div className="grid md:grid-cols-2 gap-4">
                                             <div>
-                                                <label className="block text-gray-700 font-medium mb-2">API Key</label>
+                                                <label className="block font-medium mb-2" style={{ color: 'var(--color-text)' }}>API Key</label>
                                                 <div className="flex space-x-2">
                                                     <input
                                                         type="password"
@@ -3394,38 +3625,42 @@
                                                         onChange={(e) => handleKeyChange(provider.id, e.target.value)}
                                                         placeholder={`Enter ${provider.name} API key`}
                                                         className="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                        style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
                                                     />
                                                     <button
                                                         onClick={() => handleValidate(provider.id)}
                                                         disabled={validating[provider.id]}
-                                                        className={`px-4 py-2 rounded-lg font-medium transition ${
-                                                            isValidated
-                                                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                                                : 'bg-blue-500 text-white hover:bg-blue-600'
-                                                        } disabled:opacity-50`}
+                                                        className="px-4 py-2 rounded-lg font-medium transition disabled:opacity-50"
+                                                        style={{
+                                                            background: isValidated ? 'rgba(45, 106, 79, 0.15)' : 'var(--color-primary)',
+                                                            color: isValidated ? 'var(--color-success)' : '#FFFFFF'
+                                                        }}
                                                     >
                                                         {validating[provider.id] ? '...' : isValidated ? 'Re-validate' : 'Validate'}
                                                     </button>
                                                 </div>
-                                                <a href={provider.url} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                                                <a href={provider.url} target="_blank" rel="noopener" className="text-xs hover:underline mt-1 inline-block" style={{ color: 'var(--color-accent)' }}>
                                                     Get API key →
                                                 </a>
                                             </div>
 
                                             <div>
-                                                <label className="block text-gray-700 font-medium mb-2">
+                                                <label className="block font-medium mb-2" style={{ color: 'var(--color-text)' }}>
                                                     Model
-                                                    {saveStatus[`${provider.id}_model`] === 'saving' && <span className="ml-2 text-gray-400 text-sm">Saving...</span>}
-                                                    {saveStatus[`${provider.id}_model`] === 'saved' && <span className="ml-2 text-green-500 text-sm">✓ Saved</span>}
+                                                    {saveStatus[`${provider.id}_model`] === 'saving' && <span className="ml-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>Saving...</span>}
+                                                    {saveStatus[`${provider.id}_model`] === 'saved' && <span className="ml-2 text-sm" style={{ color: 'var(--color-success)' }}>✓ Saved</span>}
                                                 </label>
                                                 <div className="flex space-x-2">
                                                     <select
                                                         value={currentModel}
                                                         onChange={(e) => handleModelChange(provider.id, e.target.value)}
                                                         disabled={!isValidated && providerModels.length === 0}
-                                                        className={`flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none ${
-                                                            !isValidated && providerModels.length === 0 ? 'bg-gray-100 text-gray-400' : ''
-                                                        }`}
+                                                        className="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                        style={{
+                                                            background: !isValidated && providerModels.length === 0 ? 'var(--color-bg-alt)' : 'var(--color-bg)',
+                                                            color: !isValidated && providerModels.length === 0 ? 'var(--color-text-muted)' : 'var(--color-text)',
+                                                            borderColor: 'var(--color-border)'
+                                                        }}
                                                     >
                                                         {providerModels.length > 0 ? (
                                                             providerModels.map(model => (
@@ -3441,7 +3676,8 @@
                                                         onClick={() => handleReloadModels(provider.id)}
                                                         disabled={reloading[provider.id]}
                                                         title="Reload model list"
-                                                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition disabled:opacity-50"
+                                                        className="px-3 py-2 rounded-lg transition disabled:opacity-50"
+                                                        style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}
                                                     >
                                                         {reloading[provider.id] ? '...' : '↻'}
                                                     </button>
@@ -3452,9 +3688,9 @@
                                 );
                             })}
 
-                            <div className="p-4 bg-blue-50 rounded-lg">
-                                <h4 className="font-semibold text-blue-800 mb-2">💡 Tips:</h4>
-                                <ul className="text-sm text-blue-700 space-y-1">
+                            <div className="p-4 rounded-lg" style={{ background: 'rgba(212, 160, 23, 0.1)' }}>
+                                <h4 className="font-semibold mb-2" style={{ color: 'var(--color-accent)' }}>💡 Tips:</h4>
+                                <ul className="text-sm space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
                                     <li>• The <b>default provider</b> will be used for AI marking and question generation</li>
                                     <li>• <b>Claude Haiku</b> is recommended for fast, cost-effective responses</li>
                                     <li>• <b>Gemini Flash</b> is a good free alternative</li>
@@ -3463,23 +3699,22 @@
                             </div>
                         </div>
                     ) : (
-                        <div className="bg-white rounded-xl shadow-lg p-6">
-                            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <div className="rounded-xl shadow-lg p-6" style={{ background: 'var(--color-surface)' }}>
+                            <h3 className="text-xl font-bold mb-6 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
                                 ⌨️ Typing Practice Settings
                             </h3>
 
                             <div className="space-y-6">
                                 {/* Enable/Disable */}
-                                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                <div className="flex items-center justify-between p-4 rounded-lg" style={{ background: 'var(--color-bg-alt)' }}>
                                     <div>
-                                        <div className="font-medium text-gray-800">Enable Typing Mode</div>
-                                        <div className="text-sm text-gray-500">Practice definitions and answers by typing them</div>
+                                        <div className="font-medium" style={{ color: 'var(--color-text)' }}>Enable Typing Mode</div>
+                                        <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Practice definitions and answers by typing them</div>
                                     </div>
                                     <button
                                         onClick={() => onTypingSettingsChange({ ...typingSettings, enabled: !typingSettings.enabled })}
-                                        className={`w-14 h-8 rounded-full transition-colors relative ${
-                                            typingSettings.enabled ? 'bg-green-500' : 'bg-gray-300'
-                                        }`}
+                                        className="w-14 h-8 rounded-full transition-colors relative"
+                                        style={{ background: typingSettings.enabled ? 'var(--color-success)' : 'var(--color-border)' }}
                                     >
                                         <div className={`absolute w-6 h-6 bg-white rounded-full top-1 transition-transform ${
                                             typingSettings.enabled ? 'translate-x-7' : 'translate-x-1'
@@ -3488,13 +3723,13 @@
                                 </div>
 
                                 {/* Memory Duration */}
-                                <div className="p-4 bg-gray-50 rounded-lg">
+                                <div className="p-4 rounded-lg" style={{ background: 'var(--color-bg-alt)' }}>
                                     <div className="flex items-center justify-between mb-3">
                                         <div>
-                                            <div className="font-medium text-gray-800">Memory Timer</div>
-                                            <div className="text-sm text-gray-500">How long to show text before hiding it</div>
+                                            <div className="font-medium" style={{ color: 'var(--color-text)' }}>Memory Timer</div>
+                                            <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>How long to show text before hiding it</div>
                                         </div>
-                                        <span className="text-lg font-mono font-bold text-green-600">{typingSettings.memoryDuration}s</span>
+                                        <span className="text-lg font-mono font-bold" style={{ color: 'var(--color-success)' }}>{typingSettings.memoryDuration}s</span>
                                     </div>
                                     <input
                                         type="range"
@@ -3505,20 +3740,20 @@
                                         onChange={(e) => onTypingSettingsChange({ ...typingSettings, memoryDuration: parseInt(e.target.value) })}
                                         className="w-full accent-green-500"
                                     />
-                                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                                    <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                                         <span>3s (Hard)</span>
                                         <span>30s (Easy)</span>
                                     </div>
                                 </div>
 
                                 {/* Stuck Timeout */}
-                                <div className="p-4 bg-gray-50 rounded-lg">
+                                <div className="p-4 rounded-lg" style={{ background: 'var(--color-bg-alt)' }}>
                                     <div className="flex items-center justify-between mb-3">
                                         <div>
-                                            <div className="font-medium text-gray-800">Hint Delay</div>
-                                            <div className="text-sm text-gray-500">How long before showing a hint when stuck</div>
+                                            <div className="font-medium" style={{ color: 'var(--color-text)' }}>Hint Delay</div>
+                                            <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>How long before showing a hint when stuck</div>
                                         </div>
-                                        <span className="text-lg font-mono font-bold text-yellow-600">{typingSettings.stuckTimeout}s</span>
+                                        <span className="text-lg font-mono font-bold" style={{ color: 'var(--color-accent)' }}>{typingSettings.stuckTimeout}s</span>
                                     </div>
                                     <input
                                         type="range"
@@ -3529,23 +3764,22 @@
                                         onChange={(e) => onTypingSettingsChange({ ...typingSettings, stuckTimeout: parseInt(e.target.value) })}
                                         className="w-full accent-yellow-500"
                                     />
-                                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                                    <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                                         <span>1s (Quick hints)</span>
                                         <span>10s (Challenge mode)</span>
                                     </div>
                                 </div>
 
                                 {/* Sound Effects */}
-                                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                <div className="flex items-center justify-between p-4 rounded-lg" style={{ background: 'var(--color-bg-alt)' }}>
                                     <div>
-                                        <div className="font-medium text-gray-800">🔊 Sound Effects</div>
-                                        <div className="text-sm text-gray-500">Key clicks, dings, and celebration sounds</div>
+                                        <div className="font-medium" style={{ color: 'var(--color-text)' }}>🔊 Sound Effects</div>
+                                        <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Key clicks, dings, and celebration sounds</div>
                                     </div>
                                     <button
                                         onClick={() => onTypingSettingsChange({ ...typingSettings, soundEnabled: !typingSettings.soundEnabled })}
-                                        className={`w-14 h-8 rounded-full transition-colors relative ${
-                                            typingSettings.soundEnabled ? 'bg-green-500' : 'bg-gray-300'
-                                        }`}
+                                        className="w-14 h-8 rounded-full transition-colors relative"
+                                        style={{ background: typingSettings.soundEnabled ? 'var(--color-success)' : 'var(--color-border)' }}
                                     >
                                         <div className={`absolute w-6 h-6 bg-white rounded-full top-1 transition-transform ${
                                             typingSettings.soundEnabled ? 'translate-x-7' : 'translate-x-1'
@@ -3554,16 +3788,15 @@
                                 </div>
 
                                 {/* TTS */}
-                                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                                <div className="flex items-center justify-between p-4 rounded-lg" style={{ background: 'var(--color-bg-alt)' }}>
                                     <div>
-                                        <div className="font-medium text-gray-800">🗣️ Text-to-Speech</div>
-                                        <div className="text-sm text-gray-500">Read definitions aloud before typing</div>
+                                        <div className="font-medium" style={{ color: 'var(--color-text)' }}>🗣️ Text-to-Speech</div>
+                                        <div className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Read definitions aloud before typing</div>
                                     </div>
                                     <button
                                         onClick={() => onTypingSettingsChange({ ...typingSettings, ttsEnabled: !typingSettings.ttsEnabled })}
-                                        className={`w-14 h-8 rounded-full transition-colors relative ${
-                                            typingSettings.ttsEnabled ? 'bg-green-500' : 'bg-gray-300'
-                                        }`}
+                                        className="w-14 h-8 rounded-full transition-colors relative"
+                                        style={{ background: typingSettings.ttsEnabled ? 'var(--color-success)' : 'var(--color-border)' }}
                                     >
                                         <div className={`absolute w-6 h-6 bg-white rounded-full top-1 transition-transform ${
                                             typingSettings.ttsEnabled ? 'translate-x-7' : 'translate-x-1'
@@ -3572,9 +3805,9 @@
                                 </div>
                             </div>
 
-                            <div className="mt-6 p-4 bg-green-50 rounded-lg">
-                                <h4 className="font-semibold text-green-800 mb-2">💡 How Typing Practice Works:</h4>
-                                <ul className="text-sm text-green-700 space-y-1">
+                            <div className="mt-6 p-4 rounded-lg" style={{ background: 'rgba(45, 106, 79, 0.1)' }}>
+                                <h4 className="font-semibold mb-2" style={{ color: 'var(--color-success)' }}>💡 How Typing Practice Works:</h4>
+                                <ul className="text-sm space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
                                     <li>1. <b>Show</b> - Read and memorize the definition</li>
                                     <li>2. <b>Dim</b> - Text fades after the timer (or first keystroke)</li>
                                     <li>3. <b>Type</b> - Reproduce from memory</li>
@@ -3594,6 +3827,7 @@
 
         // Exam Practice View - Practice with real exam questions
         function ExamPracticeView() {
+            const { theme } = useContext(ThemeContext);
             const [questions, setQuestions] = useState([]);
             const [topics, setTopics] = useState([]);
             const [selectedTopic, setSelectedTopic] = useState(null);
@@ -3627,18 +3861,19 @@
             if (!selectedTopic) {
                 return (
                     <div className="max-w-6xl mx-auto p-6">
-                        <h2 className="text-3xl font-bold text-gray-800 mb-2">📝 Exam Practice</h2>
-                        <p className="text-gray-600 mb-6">Practice with real IGCSE exam-style questions and model answers</p>
+                        <h2 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>📝 Exam Practice</h2>
+                        <p className="mb-6" style={{ color: 'var(--color-text-secondary)' }}>Practice with real IGCSE exam-style questions and model answers</p>
 
                         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                             {topics.map(topic => (
                                 <button
                                     key={topic.id}
                                     onClick={() => loadQuestions(topic.id)}
-                                    className="p-4 bg-white rounded-lg shadow hover:shadow-lg transition border-l-4 border-blue-500 text-left"
+                                    className="p-4 rounded-lg shadow hover:shadow-lg transition border-l-4 border-blue-500 text-left"
+                                    style={{ background: 'var(--color-surface)' }}
                                 >
                                     <span className="font-bold text-blue-600">{topic.topic_number}</span>
-                                    <span className="text-gray-700 ml-2">{topic.topic_name}</span>
+                                    <span className="ml-2" style={{ color: 'var(--color-text)' }}>{topic.topic_name}</span>
                                 </button>
                             ))}
                         </div>
@@ -3652,8 +3887,8 @@
                         <button onClick={() => setSelectedTopic(null)} className="mb-4 text-blue-600 hover:text-blue-800">
                             ← Back to topics
                         </button>
-                        <div className="text-center py-12 bg-white rounded-lg">
-                            <p className="text-gray-500">No exam questions available for this topic yet.</p>
+                        <div className="text-center py-12 rounded-lg" style={{ background: 'var(--color-surface)' }}>
+                            <p style={{ color: 'var(--color-text-muted)' }}>No exam questions available for this topic yet.</p>
                         </div>
                     </div>
                 );
@@ -3667,7 +3902,7 @@
                         ← Back to topics
                     </button>
 
-                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div className="rounded-xl shadow-lg overflow-hidden" style={{ background: 'var(--color-surface)' }}>
                         <div className="bg-gradient-to-r from-blue-500 to-indigo-500 p-4 flex justify-between items-center">
                             <h3 className="text-white font-bold">Question {currentQuestion + 1} of {questions.length}</h3>
                             <span className="bg-white/20 text-white px-3 py-1 rounded-full text-sm">
@@ -3676,10 +3911,16 @@
                         </div>
 
                         <div className="p-6">
-                            <p className="text-lg text-gray-800 mb-6">{q.question}</p>
+                            <p className="text-lg mb-6" style={{ color: 'var(--color-text)' }}>{q.question}</p>
 
                             {q.command_word && (
-                                <div className="mb-4 inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm">
+                                <div
+                                    className="mb-4 inline-block px-3 py-1 rounded text-sm"
+                                    style={{
+                                        background: theme === 'dark' ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE',
+                                        color: theme === 'dark' ? '#93C5FD' : '#1E40AF'
+                                    }}
+                                >
                                     Command word: <strong>{q.command_word}</strong>
                                 </div>
                             )}
@@ -3693,9 +3934,15 @@
                                 </button>
                             ) : (
                                 <div className="mt-4">
-                                    <h4 className="font-bold text-green-700 mb-2">✓ Model Answer:</h4>
-                                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                                        <p className="text-gray-800 whitespace-pre-line">{q.model_answer}</p>
+                                    <h4 className="font-bold mb-2" style={{ color: 'var(--color-success)' }}>✓ Model Answer:</h4>
+                                    <div
+                                        className="rounded-lg p-4 border"
+                                        style={{
+                                            background: theme === 'dark' ? 'rgba(45, 106, 79, 0.15)' : '#F0FDF4',
+                                            borderColor: theme === 'dark' ? 'rgba(45, 106, 79, 0.3)' : '#BBF7D0'
+                                        }}
+                                    >
+                                        <p className="whitespace-pre-line" style={{ color: 'var(--color-text)' }}>{q.model_answer}</p>
                                     </div>
                                 </div>
                             )}
@@ -3704,7 +3951,8 @@
                                 <button
                                     onClick={() => { setCurrentQuestion(Math.max(0, currentQuestion - 1)); setShowAnswer(false); }}
                                     disabled={currentQuestion === 0}
-                                    className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
+                                    className="px-4 py-2 rounded disabled:opacity-50"
+                                    style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                                 >
                                     ← Previous
                                 </button>
@@ -3724,6 +3972,7 @@
 
         // Case Studies View - Browse all case studies
         function CaseStudiesView() {
+            const { theme } = useContext(ThemeContext);
             const [caseStudies, setCaseStudies] = useState([]);
             const [topics, setTopics] = useState({});
             const [selectedCase, setSelectedCase] = useState(null);
@@ -3760,7 +4009,7 @@
                             ← Back to case studies
                         </button>
 
-                        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                        <div className="rounded-xl shadow-lg overflow-hidden" style={{ background: 'var(--color-surface)' }}>
                             <div className="bg-gradient-to-r from-green-500 to-teal-500 p-6">
                                 <h2 className="text-2xl font-bold text-white">{c.name}</h2>
                                 <p className="text-white/80 mt-1">📍 {c.location}</p>
@@ -3769,40 +4018,61 @@
                             <div className="p-6 space-y-6">
                                 {c.overview && (
                                     <div>
-                                        <h3 className="font-bold text-gray-800 mb-2">📋 Overview</h3>
-                                        <p className="text-gray-700">{c.overview}</p>
+                                        <h3 className="font-bold mb-2" style={{ color: 'var(--color-text)' }}>📋 Overview</h3>
+                                        <p style={{ color: 'var(--color-text-secondary)' }}>{c.overview}</p>
                                     </div>
                                 )}
 
                                 {c.causes && (
                                     <div>
-                                        <h3 className="font-bold text-red-600 mb-2">⚠️ Causes</h3>
-                                        <p className="text-gray-700 bg-red-50 p-3 rounded">{c.causes}</p>
+                                        <h3 className="font-bold text-red-500 mb-2">⚠️ Causes</h3>
+                                        <p
+                                            className="p-3 rounded"
+                                            style={{
+                                                background: theme === 'dark' ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
+                                                color: 'var(--color-text)'
+                                            }}
+                                        >{c.causes}</p>
                                     </div>
                                 )}
 
                                 {c.effects && (
                                     <div>
-                                        <h3 className="font-bold text-orange-600 mb-2">💥 Effects</h3>
-                                        <p className="text-gray-700 bg-orange-50 p-3 rounded">{c.effects}</p>
+                                        <h3 className="font-bold text-orange-500 mb-2">💥 Effects</h3>
+                                        <p
+                                            className="p-3 rounded"
+                                            style={{
+                                                background: theme === 'dark' ? 'rgba(249, 115, 22, 0.1)' : '#FFF7ED',
+                                                color: 'var(--color-text)'
+                                            }}
+                                        >{c.effects}</p>
                                     </div>
                                 )}
 
                                 {c.solutions && (
                                     <div>
-                                        <h3 className="font-bold text-green-600 mb-2">✅ Solutions/Responses</h3>
-                                        <p className="text-gray-700 bg-green-50 p-3 rounded">{c.solutions}</p>
+                                        <h3 className="font-bold mb-2" style={{ color: 'var(--color-success)' }}>✅ Solutions/Responses</h3>
+                                        <p
+                                            className="p-3 rounded"
+                                            style={{
+                                                background: theme === 'dark' ? 'rgba(45, 106, 79, 0.15)' : '#F0FDF4',
+                                                color: 'var(--color-text)'
+                                            }}
+                                        >{c.solutions}</p>
                                     </div>
                                 )}
 
                                 {keyFacts.length > 0 && (
                                     <div>
-                                        <h3 className="font-bold text-blue-600 mb-2">📊 Key Facts (Exam Ready)</h3>
-                                        <ul className="bg-blue-50 p-4 rounded space-y-2">
+                                        <h3 className="font-bold text-blue-500 mb-2">📊 Key Facts (Exam Ready)</h3>
+                                        <ul
+                                            className="p-4 rounded space-y-2"
+                                            style={{ background: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF' }}
+                                        >
                                             {keyFacts.map((fact, i) => (
                                                 <li key={i} className="flex items-start">
                                                     <span className="text-blue-500 mr-2">•</span>
-                                                    <span className="text-gray-800">{fact}</span>
+                                                    <span style={{ color: 'var(--color-text)' }}>{fact}</span>
                                                 </li>
                                             ))}
                                         </ul>
@@ -3810,9 +4080,15 @@
                                 )}
 
                                 {c.exam_relevance && (
-                                    <div className="bg-purple-50 border border-purple-200 p-4 rounded">
-                                        <h3 className="font-bold text-purple-700 mb-1">🎯 Exam Relevance</h3>
-                                        <p className="text-gray-700">{c.exam_relevance}</p>
+                                    <div
+                                        className="p-4 rounded border"
+                                        style={{
+                                            background: theme === 'dark' ? 'rgba(139, 92, 246, 0.1)' : '#FAF5FF',
+                                            borderColor: theme === 'dark' ? 'rgba(139, 92, 246, 0.3)' : '#E9D5FF'
+                                        }}
+                                    >
+                                        <h3 className="font-bold text-purple-500 mb-1">🎯 Exam Relevance</h3>
+                                        <p style={{ color: 'var(--color-text)' }}>{c.exam_relevance}</p>
                                     </div>
                                 )}
                             </div>
@@ -3823,13 +4099,17 @@
 
             return (
                 <div className="max-w-6xl mx-auto p-6">
-                    <h2 className="text-3xl font-bold text-gray-800 mb-2">🌍 Case Studies</h2>
-                    <p className="text-gray-600 mb-6">Essential case studies for your IGCSE Geography exam</p>
+                    <h2 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>🌍 Case Studies</h2>
+                    <p className="mb-6" style={{ color: 'var(--color-text-secondary)' }}>Essential case studies for your IGCSE Geography exam</p>
 
                     <div className="mb-6 flex flex-wrap gap-2">
                         <button
                             onClick={() => setFilter('all')}
-                            className={`px-4 py-2 rounded-full transition ${filter === 'all' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
+                            className="px-4 py-2 rounded-full transition"
+                            style={{
+                                background: filter === 'all' ? 'var(--color-success)' : 'var(--color-bg-alt)',
+                                color: filter === 'all' ? '#FFFFFF' : 'var(--color-text)'
+                            }}
                         >
                             All ({caseStudies.length})
                         </button>
@@ -3837,7 +4117,11 @@
                             <button
                                 key={cat}
                                 onClick={() => setFilter(cat)}
-                                className={`px-4 py-2 rounded-full transition capitalize ${filter === cat ? 'bg-green-500 text-white' : 'bg-gray-200'}`}
+                                className="px-4 py-2 rounded-full transition capitalize"
+                                style={{
+                                    background: filter === cat ? 'var(--color-success)' : 'var(--color-bg-alt)',
+                                    color: filter === cat ? '#FFFFFF' : 'var(--color-text)'
+                                }}
                             >
                                 {cat}
                             </button>
@@ -3849,17 +4133,24 @@
                             <button
                                 key={c.id}
                                 onClick={() => setSelectedCase(c)}
-                                className="bg-white p-4 rounded-lg shadow hover:shadow-lg transition text-left border-l-4 border-green-500"
+                                className="p-4 rounded-lg shadow hover:shadow-lg transition text-left border-l-4 border-green-500"
+                                style={{ background: 'var(--color-surface)' }}
                             >
-                                <h3 className="font-bold text-gray-800">{c.name}</h3>
-                                <p className="text-sm text-gray-500">📍 {c.location}</p>
+                                <h3 className="font-bold" style={{ color: 'var(--color-text)' }}>{c.name}</h3>
+                                <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>📍 {c.location}</p>
                                 {c.category && (
-                                    <span className="inline-block mt-2 text-xs bg-green-100 text-green-700 px-2 py-1 rounded capitalize">
+                                    <span
+                                        className="inline-block mt-2 text-xs px-2 py-1 rounded capitalize"
+                                        style={{
+                                            background: theme === 'dark' ? 'rgba(45, 106, 79, 0.2)' : '#DCFCE7',
+                                            color: 'var(--color-success)'
+                                        }}
+                                    >
                                         {c.category}
                                     </span>
                                 )}
                                 {topics[c.topic_id] && (
-                                    <p className="text-xs text-gray-400 mt-1">
+                                    <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                                         Topic {topics[c.topic_id].topic_number}
                                     </p>
                                 )}
@@ -3868,7 +4159,7 @@
                     </div>
 
                     {filtered.length === 0 && (
-                        <div className="text-center py-12 text-gray-500">
+                        <div className="text-center py-12" style={{ color: 'var(--color-text-muted)' }}>
                             No case studies found for this category.
                         </div>
                     )}
@@ -3878,6 +4169,7 @@
 
         // Study Guide View - Tips and Common Errors
         function StudyGuideView() {
+            const { theme } = useContext(ThemeContext);
             const [tips, setTips] = useState([]);
             const [errors, setErrors] = useState([]);
             const [topics, setTopics] = useState({});
@@ -3909,19 +4201,27 @@
 
             return (
                 <div className="max-w-6xl mx-auto p-6">
-                    <h2 className="text-3xl font-bold text-gray-800 mb-2">💡 Study Guide</h2>
-                    <p className="text-gray-600 mb-6">Expert tips and common mistakes to avoid</p>
+                    <h2 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>💡 Study Guide</h2>
+                    <p className="mb-6" style={{ color: 'var(--color-text-secondary)' }}>Expert tips and common mistakes to avoid</p>
 
                     <div className="flex gap-4 mb-6">
                         <button
                             onClick={() => setActiveTab('tips')}
-                            className={`px-6 py-3 rounded-lg font-semibold transition ${activeTab === 'tips' ? 'bg-yellow-500 text-white' : 'bg-gray-200'}`}
+                            className="px-6 py-3 rounded-lg font-semibold transition"
+                            style={{
+                                background: activeTab === 'tips' ? '#EAB308' : 'var(--color-bg-alt)',
+                                color: activeTab === 'tips' ? '#FFFFFF' : 'var(--color-text)'
+                            }}
                         >
                             💡 Tips ({tips.length})
                         </button>
                         <button
                             onClick={() => setActiveTab('errors')}
-                            className={`px-6 py-3 rounded-lg font-semibold transition ${activeTab === 'errors' ? 'bg-red-500 text-white' : 'bg-gray-200'}`}
+                            className="px-6 py-3 rounded-lg font-semibold transition"
+                            style={{
+                                background: activeTab === 'errors' ? '#EF4444' : 'var(--color-bg-alt)',
+                                color: activeTab === 'errors' ? '#FFFFFF' : 'var(--color-text)'
+                            }}
                         >
                             ⚠️ Common Errors ({errors.length})
                         </button>
@@ -3931,13 +4231,20 @@
                         <div className="space-y-6">
                             {examTips.length > 0 && (
                                 <div>
-                                    <h3 className="text-xl font-bold text-blue-600 mb-4">📝 Exam Tips</h3>
+                                    <h3 className="text-xl font-bold text-blue-500 mb-4">📝 Exam Tips</h3>
                                     <div className="grid gap-4 md:grid-cols-2">
                                         {examTips.map(tip => (
-                                            <div key={tip.id} className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
-                                                <p className="text-gray-800">{tip.tip_text}</p>
+                                            <div
+                                                key={tip.id}
+                                                className="p-4 rounded-lg border"
+                                                style={{
+                                                    background: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF',
+                                                    borderColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.3)' : '#BFDBFE'
+                                                }}
+                                            >
+                                                <p style={{ color: 'var(--color-text)' }}>{tip.tip_text}</p>
                                                 {topics[tip.topic_id] && (
-                                                    <p className="text-xs text-blue-600 mt-2">
+                                                    <p className="text-xs text-blue-500 mt-2">
                                                         Topic {topics[tip.topic_id].topic_number}: {topics[tip.topic_id].topic_name}
                                                     </p>
                                                 )}
@@ -3949,13 +4256,20 @@
 
                             {studyTips.length > 0 && (
                                 <div>
-                                    <h3 className="text-xl font-bold text-yellow-600 mb-4">📚 Study Tips</h3>
+                                    <h3 className="text-xl font-bold text-yellow-500 mb-4">📚 Study Tips</h3>
                                     <div className="grid gap-4 md:grid-cols-2">
                                         {studyTips.map(tip => (
-                                            <div key={tip.id} className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
-                                                <p className="text-gray-800">{tip.tip_text}</p>
+                                            <div
+                                                key={tip.id}
+                                                className="p-4 rounded-lg border"
+                                                style={{
+                                                    background: theme === 'dark' ? 'rgba(234, 179, 8, 0.1)' : '#FEFCE8',
+                                                    borderColor: theme === 'dark' ? 'rgba(234, 179, 8, 0.3)' : '#FDE68A'
+                                                }}
+                                            >
+                                                <p style={{ color: 'var(--color-text)' }}>{tip.tip_text}</p>
                                                 {topics[tip.topic_id] && (
-                                                    <p className="text-xs text-yellow-600 mt-2">
+                                                    <p className="text-xs text-yellow-500 mt-2">
                                                         Topic {topics[tip.topic_id].topic_number}: {topics[tip.topic_id].topic_name}
                                                     </p>
                                                 )}
@@ -3970,17 +4284,23 @@
                     {activeTab === 'errors' && (
                         <div className="space-y-4">
                             {errors.map(error => (
-                                <div key={error.id} className="bg-white rounded-lg shadow overflow-hidden">
-                                    <div className="bg-red-100 p-4 border-l-4 border-red-500">
-                                        <h4 className="font-bold text-red-800">❌ Common Error:</h4>
-                                        <p className="text-red-700 italic">"{error.error_statement}"</p>
+                                <div key={error.id} className="rounded-lg shadow overflow-hidden" style={{ background: 'var(--color-surface)' }}>
+                                    <div
+                                        className="p-4 border-l-4 border-red-500"
+                                        style={{ background: theme === 'dark' ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2' }}
+                                    >
+                                        <h4 className="font-bold text-red-500">❌ Common Error:</h4>
+                                        <p className="text-red-400 italic">"{error.error_statement}"</p>
                                     </div>
-                                    <div className="p-4 bg-green-50 border-l-4 border-green-500">
-                                        <h4 className="font-bold text-green-800">✅ Why it's wrong:</h4>
-                                        <p className="text-gray-700">{error.explanation}</p>
+                                    <div
+                                        className="p-4 border-l-4 border-green-500"
+                                        style={{ background: theme === 'dark' ? 'rgba(45, 106, 79, 0.15)' : '#F0FDF4' }}
+                                    >
+                                        <h4 className="font-bold" style={{ color: 'var(--color-success)' }}>✅ Why it's wrong:</h4>
+                                        <p style={{ color: 'var(--color-text)' }}>{error.explanation}</p>
                                     </div>
                                     {topics[error.topic_id] && (
-                                        <div className="px-4 py-2 bg-gray-50 text-xs text-gray-500">
+                                        <div className="px-4 py-2 text-xs" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-muted)' }}>
                                             Topic {topics[error.topic_id].topic_number}: {topics[error.topic_id].topic_name}
                                         </div>
                                     )}
@@ -3994,6 +4314,7 @@
 
         // Sample Answers View - Learn from example answers
         function SampleAnswersView() {
+            const { theme } = useContext(ThemeContext);
             const [answers, setAnswers] = useState([]);
             const [topics, setTopics] = useState({});
             const [currentIndex, setCurrentIndex] = useState(0);
@@ -4019,8 +4340,8 @@
             if (answers.length === 0) {
                 return (
                     <div className="max-w-4xl mx-auto p-6 text-center">
-                        <h2 className="text-3xl font-bold text-gray-800 mb-4">📊 Sample Answers</h2>
-                        <p className="text-gray-500">No sample answers available yet.</p>
+                        <h2 className="text-3xl font-bold mb-4" style={{ color: 'var(--color-text)' }}>📊 Sample Answers</h2>
+                        <p style={{ color: 'var(--color-text-muted)' }}>No sample answers available yet.</p>
                     </div>
                 );
             }
@@ -4029,10 +4350,10 @@
 
             return (
                 <div className="max-w-4xl mx-auto p-6">
-                    <h2 className="text-3xl font-bold text-gray-800 mb-2">📊 Sample Answers Analysis</h2>
-                    <p className="text-gray-600 mb-6">Learn from real student answers and teacher feedback</p>
+                    <h2 className="text-3xl font-bold mb-2" style={{ color: 'var(--color-text)' }}>📊 Sample Answers Analysis</h2>
+                    <p className="mb-6" style={{ color: 'var(--color-text-secondary)' }}>Learn from real student answers and teacher feedback</p>
 
-                    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div className="rounded-xl shadow-lg overflow-hidden" style={{ background: 'var(--color-surface)' }}>
                         <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 flex justify-between items-center">
                             <span className="text-white font-bold">Example {currentIndex + 1} of {answers.length}</span>
                             {a.marks_awarded && a.marks_available && (
@@ -4043,41 +4364,63 @@
                         </div>
 
                         <div className="p-6 space-y-4">
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <h4 className="font-bold text-gray-700 mb-2">📝 Question:</h4>
-                                <p className="text-gray-800">{a.question_context}</p>
+                            <div
+                                className="p-4 rounded-lg"
+                                style={{ background: 'var(--color-bg-alt)' }}
+                            >
+                                <h4 className="font-bold mb-2" style={{ color: 'var(--color-text-secondary)' }}>📝 Question:</h4>
+                                <p style={{ color: 'var(--color-text)' }}>{a.question_context}</p>
                             </div>
 
-                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                                <h4 className="font-bold text-blue-700 mb-2">✍️ Student's Answer:</h4>
-                                <p className="text-gray-800 whitespace-pre-line">{a.student_answer}</p>
+                            <div
+                                className="p-4 rounded-lg border"
+                                style={{
+                                    background: theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : '#EFF6FF',
+                                    borderColor: theme === 'dark' ? 'rgba(59, 130, 246, 0.3)' : '#BFDBFE'
+                                }}
+                            >
+                                <h4 className="font-bold text-blue-500 mb-2">✍️ Student's Answer:</h4>
+                                <p className="whitespace-pre-line" style={{ color: 'var(--color-text)' }}>{a.student_answer}</p>
                             </div>
 
-                            <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                                <h4 className="font-bold text-purple-700 mb-2">👨‍🏫 Teacher's Comments:</h4>
-                                <p className="text-gray-800">{a.teacher_comments}</p>
+                            <div
+                                className="p-4 rounded-lg border"
+                                style={{
+                                    background: theme === 'dark' ? 'rgba(139, 92, 246, 0.1)' : '#FAF5FF',
+                                    borderColor: theme === 'dark' ? 'rgba(139, 92, 246, 0.3)' : '#E9D5FF'
+                                }}
+                            >
+                                <h4 className="font-bold text-purple-500 mb-2">👨‍🏫 Teacher's Comments:</h4>
+                                <p style={{ color: 'var(--color-text)' }}>{a.teacher_comments}</p>
                             </div>
 
                             {a.strengths && (
-                                <div className="bg-green-50 p-4 rounded-lg">
-                                    <h4 className="font-bold text-green-700 mb-2">✅ Strengths:</h4>
-                                    <p className="text-gray-700">{a.strengths}</p>
+                                <div
+                                    className="p-4 rounded-lg"
+                                    style={{ background: theme === 'dark' ? 'rgba(45, 106, 79, 0.15)' : '#F0FDF4' }}
+                                >
+                                    <h4 className="font-bold mb-2" style={{ color: 'var(--color-success)' }}>✅ Strengths:</h4>
+                                    <p style={{ color: 'var(--color-text)' }}>{a.strengths}</p>
                                 </div>
                             )}
 
                             {a.improvements && (
-                                <div className="bg-orange-50 p-4 rounded-lg">
-                                    <h4 className="font-bold text-orange-700 mb-2">📈 To Improve:</h4>
-                                    <p className="text-gray-700">{a.improvements}</p>
+                                <div
+                                    className="p-4 rounded-lg"
+                                    style={{ background: theme === 'dark' ? 'rgba(249, 115, 22, 0.1)' : '#FFF7ED' }}
+                                >
+                                    <h4 className="font-bold text-orange-500 mb-2">📈 To Improve:</h4>
+                                    <p style={{ color: 'var(--color-text)' }}>{a.improvements}</p>
                                 </div>
                             )}
                         </div>
 
-                        <div className="flex justify-between p-4 bg-gray-50">
+                        <div className="flex justify-between p-4" style={{ background: 'var(--color-bg-alt)' }}>
                             <button
                                 onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
                                 disabled={currentIndex === 0}
-                                className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
+                                className="px-4 py-2 rounded disabled:opacity-50"
+                                style={{ background: 'var(--color-surface)', color: 'var(--color-text)' }}
                             >
                                 ← Previous
                             </button>
@@ -4211,6 +4554,7 @@
 
         // Document Chat View Component - RAG-powered chat with study guide documents
         function PDFChatView({ prefill, onPrefillUsed }) {
+            const { theme } = useContext(ThemeContext);
             const [documents, setDocuments] = useState([]);
             const [selectedDocs, setSelectedDocs] = useState([]); // Multi-doc selection (array of IDs)
             const [prefillProcessed, setPrefillProcessed] = useState(false); // Track if prefill was processed
@@ -5257,11 +5601,17 @@
                                             key={i}
                                             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                         >
-                                            <div className={`max-w-3xl rounded-xl p-4 ${
-                                                msg.role === 'user'
-                                                    ? 'bg-green-500 text-white'
-                                                    : 'bg-gray-100 text-gray-800'
-                                            }`}>
+                                            <div
+                                                className="max-w-3xl rounded-xl p-4"
+                                                style={{
+                                                    background: msg.role === 'user'
+                                                        ? 'var(--color-success)'
+                                                        : theme === 'dark' ? '#2A2A30' : '#F3F4F6',
+                                                    color: msg.role === 'user'
+                                                        ? '#FFFFFF'
+                                                        : 'var(--color-text)'
+                                                }}
+                                            >
                                                 <p className="whitespace-pre-wrap">
                                                     {msg.role === 'assistant'
                                                         ? renderMessageWithPageLinks(msg.content, msg.sources)
@@ -5270,8 +5620,8 @@
 
                                                 {/* Source citations */}
                                                 {msg.sources?.length > 0 && (
-                                                    <div className="mt-3 pt-2 border-t border-gray-200">
-                                                        <p className="text-xs font-medium text-gray-500 mb-1">Sources:</p>
+                                                    <div className="mt-3 pt-2 border-t" style={{ borderColor: theme === 'dark' ? '#3A3A40' : '#E5E7EB' }}>
+                                                        <p className="text-xs font-medium mb-1" style={{ color: 'var(--color-text-muted)' }}>Sources:</p>
                                                         <div className="flex flex-wrap gap-1">
                                                             {/* Group by document for multi-doc, or just show pages for single doc */}
                                                             {selectedDocs.length > 1 ? (
@@ -5288,7 +5638,11 @@
                                                                                     setShowPdfViewer(true);
                                                                                 }
                                                                             }}
-                                                                            className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
+                                                                            className="px-2 py-0.5 rounded text-xs transition"
+                                                                            style={{
+                                                                                background: 'rgba(212, 160, 23, 0.2)',
+                                                                                color: 'var(--color-accent)'
+                                                                            }}
                                                                             title={s.document_name || 'Document'}
                                                                         >
                                                                             {(s.document_name || 'Doc').substring(0, 15)}... p.{s.page_number}
@@ -5301,7 +5655,11 @@
                                                                     <button
                                                                         key={page}
                                                                         onClick={() => handlePageClick(page)}
-                                                                        className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200"
+                                                                        className="px-2 py-0.5 rounded text-xs transition"
+                                                                        style={{
+                                                                            background: 'rgba(212, 160, 23, 0.2)',
+                                                                            color: 'var(--color-accent)'
+                                                                        }}
                                                                     >
                                                                         Page {page}
                                                                     </button>
@@ -5316,7 +5674,7 @@
                                 )}
                                 {chatLoading && (
                                     <div className="flex justify-start">
-                                        <div className="bg-gray-100 rounded-xl p-4">
+                                        <div className="rounded-xl p-4" style={{ background: theme === 'dark' ? '#2A2A30' : '#F3F4F6', color: 'var(--color-text)' }}>
                                             <span className="animate-pulse">Thinking...</span>
                                         </div>
                                     </div>
@@ -5352,74 +5710,84 @@
                     {/* Document Viewer Modal */}
                     {showPdfViewer && viewingDoc?.public_url && (
                         <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${pdfViewerFullscreen ? 'p-0' : 'p-4'}`}>
-                            <div className={`bg-white flex flex-col ${pdfViewerFullscreen ? 'w-full h-full' : 'rounded-xl w-11/12 h-5/6 max-w-6xl'}`}>
-                                <div className="p-3 border-b flex items-center justify-between gap-2 flex-wrap">
-                                    <h3 className="font-semibold text-sm truncate max-w-xs">{viewingDoc.original_filename}</h3>
+                            <div
+                                className={`flex flex-col ${pdfViewerFullscreen ? 'w-full h-full' : 'rounded-xl w-11/12 h-5/6 max-w-6xl'}`}
+                                style={{ background: 'var(--color-surface)' }}
+                            >
+                                <div className="p-3 flex items-center justify-between gap-2 flex-wrap" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                                    <h3 className="font-semibold text-sm truncate max-w-xs" style={{ color: 'var(--color-text)' }}>{viewingDoc.original_filename}</h3>
                                     <div className="flex items-center gap-2 flex-wrap">
                                         {/* Page Navigation */}
-                                        <div className="flex items-center gap-1 bg-gray-100 rounded px-2 py-1">
+                                        <div className="flex items-center gap-1 rounded px-2 py-1" style={{ background: 'var(--color-bg-alt)' }}>
                                             <button
                                                 onClick={() => setPdfViewerPage(Math.max(1, pdfViewerPage - 1))}
-                                                className="px-2 hover:bg-gray-200 rounded"
+                                                className="px-2 rounded transition"
+                                                style={{ color: 'var(--color-text)' }}
                                                 disabled={pdfViewerPage <= 1}
                                             >←</button>
-                                            <span className="text-sm min-w-[80px] text-center">
+                                            <span className="text-sm min-w-[80px] text-center" style={{ color: 'var(--color-text)' }}>
                                                 Page {pdfViewerPage}{pdfTotalPages > 0 ? ` / ${pdfTotalPages}` : ''}
                                             </span>
                                             <button
                                                 onClick={() => setPdfViewerPage(Math.min(pdfTotalPages || 999, pdfViewerPage + 1))}
-                                                className="px-2 hover:bg-gray-200 rounded"
+                                                className="px-2 rounded transition"
+                                                style={{ color: 'var(--color-text)' }}
                                                 disabled={pdfTotalPages > 0 && pdfViewerPage >= pdfTotalPages}
                                             >→</button>
                                         </div>
                                         {/* Zoom Controls */}
-                                        <div className="flex items-center gap-1 bg-gray-100 rounded px-2 py-1">
+                                        <div className="flex items-center gap-1 rounded px-2 py-1" style={{ background: 'var(--color-bg-alt)' }}>
                                             <button
                                                 onClick={() => setPdfViewerZoom(Math.max(50, pdfViewerZoom - 25))}
-                                                className="px-2 hover:bg-gray-200 rounded"
+                                                className="px-2 rounded transition"
+                                                style={{ color: 'var(--color-text)' }}
                                                 title="Zoom Out"
                                             >−</button>
-                                            <span className="text-sm min-w-[50px] text-center">{pdfViewerZoom}%</span>
+                                            <span className="text-sm min-w-[50px] text-center" style={{ color: 'var(--color-text)' }}>{pdfViewerZoom}%</span>
                                             <button
                                                 onClick={() => setPdfViewerZoom(Math.min(200, pdfViewerZoom + 25))}
-                                                className="px-2 hover:bg-gray-200 rounded"
+                                                className="px-2 rounded transition"
+                                                style={{ color: 'var(--color-text)' }}
                                                 title="Zoom In"
                                             >+</button>
                                         </div>
                                         {/* Open in New Tab - enables native Cmd+F search */}
                                         <button
                                             onClick={() => window.open(`${viewingDoc.public_url}#page=${pdfViewerPage}`, '_blank')}
-                                            className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm"
+                                            className="px-3 py-1 rounded text-sm transition"
+                                            style={{ background: 'rgba(212, 160, 23, 0.2)', color: 'var(--color-accent)' }}
                                             title="Open in new tab (use Cmd+F to search)"
                                         >🔍 Search (Cmd+F)</button>
                                         {/* Fullscreen Toggle */}
                                         <button
                                             onClick={() => setPdfViewerFullscreen(!pdfViewerFullscreen)}
-                                            className="px-3 py-1 bg-gray-100 rounded hover:bg-gray-200 text-sm"
+                                            className="px-3 py-1 rounded text-sm transition"
+                                            style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)' }}
                                             title={pdfViewerFullscreen ? "Exit Fullscreen" : "Fullscreen"}
                                         >{pdfViewerFullscreen ? '⊙' : '⛶'}</button>
                                         {/* Close */}
                                         <button
                                             onClick={() => { setShowPdfViewer(false); setPdfViewerFullscreen(false); }}
-                                            className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
+                                            className="px-3 py-1 rounded text-sm transition"
+                                            style={{ background: 'rgba(200, 50, 50, 0.15)', color: 'var(--color-error)' }}
                                         >✕</button>
                                     </div>
                                 </div>
 
-                                <div className="flex-1 overflow-auto p-2 bg-gray-100 flex items-start justify-center relative">
+                                <div className="flex-1 overflow-auto p-2 flex items-start justify-center relative" style={{ background: 'var(--color-bg-alt)' }}>
                                     {pdfPageLoading && (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-90 z-10">
+                                        <div className="absolute inset-0 flex items-center justify-center z-10" style={{ background: theme === 'dark' ? 'rgba(19, 19, 22, 0.9)' : 'rgba(243, 244, 246, 0.9)' }}>
                                             <div className="text-center">
                                                 <div className="animate-spin text-4xl mb-2">⏳</div>
-                                                <p className="text-gray-600">Loading page {pdfViewerPage}...</p>
+                                                <p style={{ color: 'var(--color-text-secondary)' }}>Loading page {pdfViewerPage}...</p>
                                             </div>
                                         </div>
                                     )}
                                     <div style={{ transform: `scale(${pdfViewerZoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.2s' }}>
                                         <canvas
                                             ref={pdfCanvasRef}
-                                            className="border rounded bg-white shadow-lg"
-                                            style={{ maxWidth: '100%' }}
+                                            className="border rounded shadow-lg"
+                                            style={{ maxWidth: '100%', background: '#FFFFFF', borderColor: 'var(--color-border)' }}
                                         />
                                     </div>
                                 </div>
