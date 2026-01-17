@@ -658,13 +658,32 @@ class handler(BaseHTTPRequestHandler):
             self._json_response(200, list(themes.values()))
             return
 
-        if path.startswith('/topics/') and not any(x in path for x in ['/flashcards', '/quiz', '/test']):
+        if path.startswith('/topics/') and not any(x in path for x in ['/flashcards', '/quiz', '/test', '/teacher']):
             topic_id = path.split('/')[-1]
             topics = supabase_get('topics', {'id': f'eq.{topic_id}'})
             defs = supabase_get('definitions', {'topic_id': f'eq.{topic_id}'})
             questions = supabase_get('questions', {'topic_id': f'eq.{topic_id}'})
             topic = topics[0] if topics else None
             self._json_response(200, {"topic": topic, "definitions": defs, "questions": questions, "content": {}})
+            return
+
+        # Teacher's Terminology endpoints
+        if path == '/teacher-definitions':
+            # Get all teacher definitions grouped by topic
+            teacher_defs = supabase_get('teacher_definitions', {'select': '*', 'order': 'topic_id,term'})
+            self._json_response(200, teacher_defs)
+            return
+
+        if path.startswith('/teacher-definitions/'):
+            topic_id = path.split('/')[-1]
+            teacher_defs = supabase_get('teacher_definitions', {'topic_id': f'eq.{topic_id}', 'order': 'term'})
+            self._json_response(200, teacher_defs)
+            return
+
+        if '/teacher-flashcards' in path:
+            topic_id = path.split('/')[2]
+            teacher_defs = supabase_get('teacher_definitions', {'topic_id': f'eq.{topic_id}', 'order': 'term'})
+            self._json_response(200, teacher_defs)
             return
 
         if '/flashcards' in path:

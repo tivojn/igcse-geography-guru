@@ -1439,6 +1439,7 @@
         function TopicDetail({ topic, onBack, typingSettings, onNavigateToDocChat }) {
             const { theme } = useContext(ThemeContext);
             const [data, setData] = useState(null);
+            const [teacherDefs, setTeacherDefs] = useState([]);
             const [loading, setLoading] = useState(true);
             const [activeTab, setActiveTab] = useState('learn');
             const [startIndex, setStartIndex] = useState(0);
@@ -1448,8 +1449,12 @@
             const [ragContextType, setRagContextType] = useState('general');
 
             useEffect(() => {
-                api.get(`/topics/${topic.id}`).then(result => {
-                    setData(result);
+                Promise.all([
+                    api.get(`/topics/${topic.id}`),
+                    api.get(`/teacher-definitions/${topic.id}`)
+                ]).then(([topicResult, teacherResult]) => {
+                    setData(topicResult);
+                    setTeacherDefs(teacherResult || []);
                     setLoading(false);
                 });
             }, [topic.id]);
@@ -1564,8 +1569,8 @@
                         </div>
 
                         <div className="p-6" style={{ background: 'var(--color-bg)' }}>
-                            {activeTab === 'learn' && <LearnTab data={data} onNavigate={navigateTo} onOpenRAG={openRAGModal} />}
-                            {activeTab === 'flashcards' && <FlashcardsTab definitions={data?.definitions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
+                            {activeTab === 'learn' && <LearnTab data={data} teacherDefinitions={teacherDefs} onNavigate={navigateTo} onOpenRAG={openRAGModal} />}
+                            {activeTab === 'flashcards' && <FlashcardsTab definitions={data?.definitions || []} teacherDefinitions={teacherDefs} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                             {activeTab === 'test-yourself' && <TestYourselfTab topicCode={topic.topic_number} topicName={topic.topic_name} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                             {activeTab === 'exam-practice' && <ExamPracticeTab topicId={topic.id} topicName={topic.topic_name} onNavigateToDocChat={onNavigateToDocChat} />}
                             {activeTab === 'study-tips' && <StudyTipsTab topicId={topic.id} onNavigateToDocChat={onNavigateToDocChat} />}
@@ -1588,8 +1593,10 @@
         }
 
         // Learn Tab Component
-        function LearnTab({ data, onNavigate, onOpenRAG }) {
+        function LearnTab({ data, teacherDefinitions = [], onNavigate, onOpenRAG }) {
+            const { theme } = useContext(ThemeContext);
             const content = data?.content || {};
+            const [activeSource, setActiveSource] = useState('study-guide'); // 'study-guide' or 'teacher'
 
             // Action button component for consistent styling
             const ActionButton = ({ onClick, title, children, variant = 'primary' }) => {
@@ -1597,7 +1604,8 @@
                     primary: { bg: 'var(--color-primary)', color: '#F5F5EB', hoverBg: 'var(--color-primary-light)' },
                     accent: { bg: 'var(--color-accent)', color: 'var(--color-primary)', hoverBg: 'var(--color-accent-light)' },
                     success: { bg: 'var(--color-success)', color: '#F5F5EB', hoverBg: 'var(--color-success-light)' },
-                    ghost: { bg: 'var(--color-bg-alt)', color: 'var(--color-text)', hoverBg: 'var(--color-border-light)' }
+                    ghost: { bg: 'var(--color-bg-alt)', color: 'var(--color-text)', hoverBg: 'var(--color-border-light)' },
+                    teacher: { bg: theme === 'dark' ? 'rgba(168, 85, 247, 0.2)' : '#F3E8FF', color: theme === 'dark' ? '#C4B5FD' : '#7C3AED', hoverBg: theme === 'dark' ? 'rgba(168, 85, 247, 0.3)' : '#EDE9FE' }
                 };
                 const v = variants[variant];
                 return (
@@ -1614,50 +1622,148 @@
                 );
             };
 
+            const studyGuideDefs = data?.definitions || [];
+            const hasTeacherDefs = teacherDefinitions.length > 0;
+            const hasStudyGuideDefs = studyGuideDefs.length > 0;
+
             return (
                 <div className="space-y-8">
-                    {/* Key Definitions Section */}
-                    <section>
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 rounded-lg" style={{ background: 'var(--color-primary)', color: 'var(--color-accent)' }}>
+                    {/* Source Toggle - Only show if both sources have content */}
+                    {hasStudyGuideDefs && hasTeacherDefs && (
+                        <div className="flex items-center justify-center gap-2 p-1 rounded-xl" style={{ background: 'var(--color-bg-alt)' }}>
+                            <button
+                                onClick={() => setActiveSource('study-guide')}
+                                className="flex-1 px-4 py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2"
+                                style={{
+                                    background: activeSource === 'study-guide' ? 'var(--color-surface)' : 'transparent',
+                                    color: activeSource === 'study-guide' ? 'var(--color-accent)' : 'var(--color-text-muted)',
+                                    boxShadow: activeSource === 'study-guide' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+                                }}
+                            >
                                 <Icons.book />
-                            </div>
-                            <h3 className="text-xl font-bold font-display" style={{ color: 'var(--color-text)' }}>Key Definitions</h3>
+                                <span>Study Guide ({studyGuideDefs.length})</span>
+                            </button>
+                            <button
+                                onClick={() => setActiveSource('teacher')}
+                                className="flex-1 px-4 py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2"
+                                style={{
+                                    background: activeSource === 'teacher' ? 'var(--color-surface)' : 'transparent',
+                                    color: activeSource === 'teacher' ? (theme === 'dark' ? '#C4B5FD' : '#7C3AED') : 'var(--color-text-muted)',
+                                    boxShadow: activeSource === 'teacher' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+                                }}
+                            >
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                </svg>
+                                <span>Teacher's List ({teacherDefinitions.length})</span>
+                            </button>
                         </div>
-                        <div className="grid gap-3">
-                            {data?.definitions?.map((def, i) => (
-                                <div
-                                    key={i}
-                                    className="p-4 rounded-lg transition-all"
-                                    style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border-light)' }}
-                                >
-                                    <div className="flex justify-between items-start gap-4">
-                                        <div className="flex-1">
-                                            <span className="font-semibold" style={{ color: 'var(--color-accent)' }}>{def.term}:</span>
-                                            <span className="ml-2" style={{ color: 'var(--color-text-secondary)' }}>{def.definition}</span>
-                                            {def.textbook_page && (
-                                                <span className="ml-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>(p.{def.textbook_page})</span>
-                                            )}
-                                        </div>
-                                        <div className="flex gap-1.5 flex-shrink-0">
-                                            <ActionButton onClick={() => onNavigate('flashcards', i)} title="Practice with Flashcard" variant="ghost">
-                                                Flashcard
-                                            </ActionButton>
-                                            <ActionButton onClick={() => onNavigate('test-yourself', i)} title="Test Yourself" variant="primary">
-                                                Test
-                                            </ActionButton>
-                                            <ActionButton onClick={() => onNavigate('quiz', i)} title="Take Quiz" variant="accent">
-                                                Quiz
-                                            </ActionButton>
-                                            <ActionButton onClick={() => onOpenRAG({ term: def.term, definition: def.definition }, 'definition')} title="Search in documents" variant="success">
-                                                Docs
-                                            </ActionButton>
+                    )}
+
+                    {/* Key Definitions Section - Study Guide */}
+                    {activeSource === 'study-guide' && hasStudyGuideDefs && (
+                        <section>
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 rounded-lg" style={{ background: 'var(--color-primary)', color: 'var(--color-accent)' }}>
+                                    <Icons.book />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold font-display" style={{ color: 'var(--color-text)' }}>Key Definitions</h3>
+                                    <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>From Cambridge Study & Revision Guide</p>
+                                </div>
+                            </div>
+                            <div className="grid gap-3">
+                                {studyGuideDefs.map((def, i) => (
+                                    <div
+                                        key={i}
+                                        className="p-4 rounded-lg transition-all"
+                                        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border-light)' }}
+                                    >
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div className="flex-1">
+                                                <span className="font-semibold" style={{ color: 'var(--color-accent)' }}>{def.term}:</span>
+                                                <span className="ml-2" style={{ color: 'var(--color-text-secondary)' }}>{def.definition}</span>
+                                                {def.textbook_page && (
+                                                    <span className="ml-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>(p.{def.textbook_page})</span>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-1.5 flex-shrink-0">
+                                                <ActionButton onClick={() => onNavigate('flashcards', i)} title="Practice with Flashcard" variant="ghost">
+                                                    Flashcard
+                                                </ActionButton>
+                                                <ActionButton onClick={() => onNavigate('test-yourself', i)} title="Test Yourself" variant="primary">
+                                                    Test
+                                                </ActionButton>
+                                                <ActionButton onClick={() => onNavigate('quiz', i)} title="Take Quiz" variant="accent">
+                                                    Quiz
+                                                </ActionButton>
+                                                <ActionButton onClick={() => onOpenRAG({ term: def.term, definition: def.definition }, 'definition')} title="Search in documents" variant="success">
+                                                    Docs
+                                                </ActionButton>
+                                            </div>
                                         </div>
                                     </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {/* Teacher's Terminology Section */}
+                    {activeSource === 'teacher' && hasTeacherDefs && (
+                        <section>
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 rounded-lg" style={{ background: theme === 'dark' ? 'rgba(168, 85, 247, 0.2)' : '#F3E8FF', color: theme === 'dark' ? '#C4B5FD' : '#7C3AED' }}>
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                        <circle cx="9" cy="7" r="4"/>
+                                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                    </svg>
                                 </div>
-                            ))}
+                                <div>
+                                    <h3 className="text-xl font-bold font-display" style={{ color: 'var(--color-text)' }}>Teacher's Terminology</h3>
+                                    <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Curated definitions from your teacher</p>
+                                </div>
+                            </div>
+                            <div className="grid gap-3">
+                                {teacherDefinitions.map((def, i) => (
+                                    <div
+                                        key={def.id || i}
+                                        className="p-4 rounded-lg transition-all"
+                                        style={{
+                                            background: 'var(--color-surface)',
+                                            border: `1px solid ${theme === 'dark' ? 'rgba(168, 85, 247, 0.2)' : '#E9D5FF'}`
+                                        }}
+                                    >
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div className="flex-1">
+                                                <span className="font-semibold" style={{ color: theme === 'dark' ? '#C4B5FD' : '#7C3AED' }}>{def.term}:</span>
+                                                <span className="ml-2" style={{ color: 'var(--color-text-secondary)' }}>{def.definition}</span>
+                                            </div>
+                                            <div className="flex gap-1.5 flex-shrink-0">
+                                                <ActionButton onClick={() => onNavigate('flashcards', i)} title="Practice with Flashcard" variant="ghost">
+                                                    Flashcard
+                                                </ActionButton>
+                                                <ActionButton onClick={() => onOpenRAG({ term: def.term, definition: def.definition }, 'teacher_definition')} title="Search in documents" variant="success">
+                                                    Docs
+                                                </ActionButton>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    )}
+
+                    {/* Show message if only one source available */}
+                    {!hasStudyGuideDefs && !hasTeacherDefs && (
+                        <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
+                            No definitions available for this topic yet.
                         </div>
-                    </section>
+                    )}
 
                     {/* Exam Tips Section */}
                     {content.tips?.length > 0 && (
@@ -1723,30 +1829,43 @@
             );
         }
 
-        // Flashcards Tab Component - ENHANCED with Type to Learn
-        function FlashcardsTab({ definitions, topicId, typingSettings, startIndex = 0, onStartIndexUsed }) {
+        // Flashcards Tab Component - ENHANCED with Type to Learn and Teacher's Terminology
+        function FlashcardsTab({ definitions, teacherDefinitions = [], topicId, typingSettings, startIndex = 0, onStartIndexUsed }) {
             const { theme } = useContext(ThemeContext);
+            const [activeSource, setActiveSource] = useState('study-guide'); // 'study-guide' or 'teacher'
             const [currentIndex, setCurrentIndex] = useState(startIndex);
             const [flipped, setFlipped] = useState(false);
             const [stats, setStats] = useState({ knew: 0, didnt: 0 });
             const [mode, setMode] = useState('flip'); // 'flip' or 'type'
             const [isTyping, setIsTyping] = useState(false);
 
+            const hasTeacherDefs = teacherDefinitions.length > 0;
+            const hasStudyGuideDefs = definitions.length > 0;
+            const activeDefinitions = activeSource === 'teacher' ? teacherDefinitions : definitions;
+
             // Handle startIndex from navigation
             useEffect(() => {
-                if (startIndex > 0 && startIndex < definitions.length) {
+                if (startIndex > 0 && startIndex < activeDefinitions.length) {
                     setCurrentIndex(startIndex);
                     setFlipped(false);
                     setIsTyping(false);
                     if (onStartIndexUsed) onStartIndexUsed();
                 }
-            }, [startIndex, definitions.length, onStartIndexUsed]);
+            }, [startIndex, activeDefinitions.length, onStartIndexUsed]);
 
-            const current = definitions[currentIndex];
+            // Reset index when switching sources
+            useEffect(() => {
+                setCurrentIndex(0);
+                setFlipped(false);
+                setIsTyping(false);
+                setStats({ knew: 0, didnt: 0 });
+            }, [activeSource]);
+
+            const current = activeDefinitions[currentIndex];
 
             // Navigation functions
             const goToNext = () => {
-                if (currentIndex < definitions.length - 1) {
+                if (currentIndex < activeDefinitions.length - 1) {
                     setCurrentIndex(currentIndex + 1);
                     setFlipped(false);
                     setIsTyping(false);
@@ -1762,7 +1881,10 @@
             };
 
             const handleResponse = async (knewIt) => {
-                await api.post(`/flashcards/${current.id}/attempt`, { knew_it: knewIt });
+                // Only track for study guide definitions that have IDs
+                if (activeSource === 'study-guide' && current.id) {
+                    await api.post(`/flashcards/${current.id}/attempt`, { knew_it: knewIt });
+                }
 
                 setStats(prev => ({
                     knew: knewIt ? prev.knew + 1 : prev.knew,
@@ -1771,7 +1893,7 @@
 
                 setFlipped(false);
                 setIsTyping(false);
-                if (currentIndex < definitions.length - 1) {
+                if (currentIndex < activeDefinitions.length - 1) {
                     setTimeout(() => setCurrentIndex(currentIndex + 1), 300);
                 }
             };
@@ -1785,7 +1907,7 @@
                 setIsTyping(true);
             };
 
-            if (!definitions.length) {
+            if (!activeDefinitions.length) {
                 return (
                     <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
                         No flashcards available for this topic.
@@ -1793,7 +1915,7 @@
                 );
             }
 
-            if (currentIndex >= definitions.length) {
+            if (currentIndex >= activeDefinitions.length) {
                 const percentage = Math.round((stats.knew / (stats.knew + stats.didnt)) * 100);
                 return (
                     <div className="text-center py-8">
@@ -1818,6 +1940,39 @@
 
             return (
                 <div className="flex flex-col items-center">
+                    {/* Source Toggle - Only show if both sources have content */}
+                    {hasStudyGuideDefs && hasTeacherDefs && (
+                        <div className="mb-4 w-full max-w-md flex items-center justify-center gap-2 p-1 rounded-xl" style={{ background: 'var(--color-bg-alt)' }}>
+                            <button
+                                onClick={() => setActiveSource('study-guide')}
+                                className="flex-1 px-3 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 text-sm"
+                                style={{
+                                    background: activeSource === 'study-guide' ? 'var(--color-surface)' : 'transparent',
+                                    color: activeSource === 'study-guide' ? 'var(--color-accent)' : 'var(--color-text-muted)',
+                                    boxShadow: activeSource === 'study-guide' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+                                }}
+                            >
+                                <Icons.book />
+                                Study Guide ({definitions.length})
+                            </button>
+                            <button
+                                onClick={() => setActiveSource('teacher')}
+                                className="flex-1 px-3 py-2 rounded-lg font-medium transition-all flex items-center justify-center gap-2 text-sm"
+                                style={{
+                                    background: activeSource === 'teacher' ? 'var(--color-surface)' : 'transparent',
+                                    color: activeSource === 'teacher' ? (theme === 'dark' ? '#C4B5FD' : '#7C3AED') : 'var(--color-text-muted)',
+                                    boxShadow: activeSource === 'teacher' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+                                }}
+                            >
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                </svg>
+                                Teacher's ({teacherDefinitions.length})
+                            </button>
+                        </div>
+                    )}
+
                     {/* Mode Toggle */}
                     <div className="mb-4 flex items-center gap-2 p-1 rounded-full" style={{ background: 'var(--color-bg-alt)' }}>
                         <button
@@ -1855,11 +2010,11 @@
                             <Icons.back />
                         </button>
                         <span style={{ color: 'var(--color-text-muted)' }}>
-                            Card <strong style={{ color: 'var(--color-accent)' }}>{currentIndex + 1}</strong> of {definitions.length}
+                            Card <strong style={{ color: activeSource === 'teacher' ? (theme === 'dark' ? '#C4B5FD' : '#7C3AED') : 'var(--color-accent)' }}>{currentIndex + 1}</strong> of {activeDefinitions.length}
                         </span>
                         <button
                             onClick={goToNext}
-                            disabled={currentIndex >= definitions.length - 1}
+                            disabled={currentIndex >= activeDefinitions.length - 1}
                             className="px-3 py-1 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
                             style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text)', transform: 'rotate(180deg)' }}
                         >
