@@ -1451,13 +1451,13 @@
             useEffect(() => {
                 Promise.all([
                     api.get(`/topics/${topic.id}`),
-                    api.get(`/teacher-definitions/${topic.id}`)
+                    api.get(`/teacher-definitions/${topic.topic_number}`)
                 ]).then(([topicResult, teacherResult]) => {
                     setData(topicResult);
                     setTeacherDefs(teacherResult || []);
                     setLoading(false);
                 });
-            }, [topic.id]);
+            }, [topic.id, topic.topic_number]);
 
             // Navigation helper to jump to a specific item in a tab
             const navigateTo = (tabId, index = 0) => {
