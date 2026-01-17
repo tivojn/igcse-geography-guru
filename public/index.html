@@ -1054,6 +1054,7 @@
                 'tip': 'Study Tip',
                 'common_error': 'Common Error',
                 'definition': 'Definition',
+                'teacher_definition': 'Teacher\'s Terminology',
                 'case_study': 'Case Study',
                 'general': 'Content'
             };
@@ -1065,6 +1066,7 @@
                 if (contextType === 'tip') return context.text || '';
                 if (contextType === 'common_error') return context.error || '';
                 if (contextType === 'definition') return `${context.term}: ${context.definition}`;
+                if (contextType === 'teacher_definition') return `${context.term}: ${context.definition}`;
                 return context.text || String(context);
             };
 
@@ -1189,6 +1191,7 @@
                                              contextType === 'tip' ? context.text :
                                              contextType === 'common_error' ? context.error :
                                              contextType === 'definition' ? `${context.term}: ${context.definition}` :
+                                             contextType === 'teacher_definition' ? `${context.term}: ${context.definition}` :
                                              (context.text || String(context)).substring(0, 200)}...
                                         </p>
                                     </div>
