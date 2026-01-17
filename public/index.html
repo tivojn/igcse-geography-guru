@@ -5644,13 +5644,22 @@
                     if (sources.length === 0) return null;
                     // Find a source with this page number
                     const source = sources.find(s => s.page_number === pageNum);
-                    if (source?.document_id) {
-                        return documents.find(d => d.id === source.document_id);
+                    if (source) {
+                        // Try by document_id first, then fallback to filename matching
+                        let doc = documents.find(d => d.id === source.document_id);
+                        if (!doc && source.document_name) {
+                            doc = documents.find(d => d.original_filename === source.document_name);
+                        }
+                        if (doc) return doc;
                     }
-                    // If no exact match, return the first source's document as fallback
+                    // If no exact page match, try using the first source's document
                     const firstSource = sources[0];
-                    if (firstSource?.document_id) {
-                        return documents.find(d => d.id === firstSource.document_id);
+                    if (firstSource) {
+                        let doc = documents.find(d => d.id === firstSource.document_id);
+                        if (!doc && firstSource.document_name) {
+                            doc = documents.find(d => d.original_filename === firstSource.document_name);
+                        }
+                        return doc;
                     }
                     return null;
                 };
@@ -6006,7 +6015,12 @@
                                                             {selectedDocs.length > 1 ? (
                                                                 // Multi-doc: show document name + page
                                                                 msg.sources.map((s, idx) => {
-                                                                    const doc = documents.find(d => d.id === s.document_id);
+                                                                    // Find doc by ID first, fall back to matching by filename
+                                                                    let doc = documents.find(d => d.id === s.document_id);
+                                                                    if (!doc && s.document_name) {
+                                                                        // Fallback: match by filename if document_id doesn't match
+                                                                        doc = documents.find(d => d.original_filename === s.document_name);
+                                                                    }
                                                                     return (
                                                                         <button
                                                                             key={idx}
@@ -6015,6 +6029,8 @@
                                                                                     setViewingDoc(doc);
                                                                                     setPdfViewerPage(s.page_number);
                                                                                     setShowPdfViewer(true);
+                                                                                } else {
+                                                                                    console.warn('Could not find document for source:', s);
                                                                                 }
                                                                             }}
                                                                             className="px-2 py-0.5 rounded text-xs transition"
