@@ -109,6 +109,21 @@
         ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
+        /* PDF text layer for text selection */
+        .pdf-text-layer {
+            line-height: 1;
+        }
+        .pdf-text-layer span {
+            color: transparent;
+            pointer-events: auto;
+        }
+        .pdf-text-layer span::selection {
+            background: rgba(0, 100, 255, 0.3);
+        }
+        .pdf-text-layer span::-moz-selection {
+            background: rgba(0, 100, 255, 0.3);
+        }
+
         /* Card styles */
         .card {
             background: var(--color-surface);
@@ -4851,6 +4866,7 @@
             const messagesEndRef = useRef(null);
             const pdfDocRef = useRef(null); // Cache loaded PDF for total pages
             const pdfCanvasRef = useRef(null); // Canvas for rendering PDF pages
+            const pdfTextLayerRef = useRef(null); // Text layer for text selection
 
             // Filter and sort documents
             const filteredDocs = useMemo(() => {
@@ -5618,6 +5634,53 @@
                             viewport: viewport
                         }).promise;
 
+                        // Render text layer for text selection
+                        if (pdfTextLayerRef.current) {
+                            const textLayer = pdfTextLayerRef.current;
+                            textLayer.innerHTML = '';
+
+                            // Match text layer size to displayed canvas size
+                            const displayWidth = viewport.width / scale;
+                            const displayHeight = viewport.height / scale;
+                            textLayer.style.width = `${displayWidth}px`;
+                            textLayer.style.height = `${displayHeight}px`;
+
+                            const textContent = await page.getTextContent();
+                            const textItems = textContent.items;
+
+                            // Get viewport for scale=1 to get proper PDF->screen coordinates
+                            const vp1 = page.getViewport({ scale: 1 });
+
+                            textItems.forEach(item => {
+                                if (!item.str) return;
+
+                                const div = document.createElement('span');
+                                div.textContent = item.str;
+
+                                const tx = item.transform;
+                                // Font size from the text transform matrix (tx[0] and tx[3] contain scale)
+                                const fontHeight = Math.sqrt(tx[0] * tx[0] + tx[1] * tx[1]);
+
+                                // Transform PDF coordinates to viewport coordinates
+                                // The viewport transform handles the y-flip and scaling
+                                const vt = vp1.transform;
+                                const x = vt[0] * tx[4] + vt[2] * tx[5] + vt[4];
+                                const y = vt[1] * tx[4] + vt[3] * tx[5] + vt[5];
+
+                                div.style.cssText = `
+                                    position: absolute;
+                                    left: ${x}px;
+                                    top: ${y - fontHeight}px;
+                                    font-size: ${fontHeight}px;
+                                    font-family: sans-serif;
+                                    color: transparent;
+                                    white-space: pre;
+                                `;
+
+                                textLayer.appendChild(div);
+                            });
+                        }
+
                         setPdfPageLoading(false);
                     } catch (err) {
                         console.error('Failed to render page:', err);
@@ -6179,11 +6242,26 @@
                                         </div>
                                     )}
                                     <div style={{ transform: `scale(${pdfViewerZoom / 100})`, transformOrigin: 'top center', transition: 'transform 0.2s' }}>
-                                        <canvas
-                                            ref={pdfCanvasRef}
-                                            className="border rounded shadow-lg"
-                                            style={{ maxWidth: '100%', background: '#FFFFFF', borderColor: 'var(--color-border)' }}
-                                        />
+                                        <div style={{ position: 'relative' }}>
+                                            <canvas
+                                                ref={pdfCanvasRef}
+                                                className="border rounded shadow-lg"
+                                                style={{ maxWidth: '100%', background: '#FFFFFF', borderColor: 'var(--color-border)' }}
+                                            />
+                                            <div
+                                                ref={pdfTextLayerRef}
+                                                className="pdf-text-layer"
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: 0,
+                                                    left: 0,
+                                                    overflow: 'hidden',
+                                                    pointerEvents: 'auto',
+                                                    userSelect: 'text',
+                                                    cursor: 'text'
+                                                }}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
