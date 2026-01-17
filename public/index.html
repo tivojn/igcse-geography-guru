@@ -5639,6 +5639,22 @@
                 let lastIndex = 0;
                 let match;
 
+                // Helper to find the correct document for a page number from sources
+                const findDocForPage = (pageNum) => {
+                    if (sources.length === 0) return null;
+                    // Find a source with this page number
+                    const source = sources.find(s => s.page_number === pageNum);
+                    if (source?.document_id) {
+                        return documents.find(d => d.id === source.document_id);
+                    }
+                    // If no exact match, return the first source's document as fallback
+                    const firstSource = sources[0];
+                    if (firstSource?.document_id) {
+                        return documents.find(d => d.id === firstSource.document_id);
+                    }
+                    return null;
+                };
+
                 while ((match = pagePattern.exec(content)) !== null) {
                     // Add text before the match
                     if (match.index > lastIndex) {
@@ -5652,12 +5668,13 @@
                     // Create clickable link(s)
                     pageNums.forEach((pageNum, idx) => {
                         if (idx > 0) parts.push(', ');
+                        const docForPage = findDocForPage(pageNum);
                         parts.push(
                             React.createElement('button', {
                                 key: `page-${match.index}-${pageNum}`,
-                                onClick: () => handlePageClick(pageNum),
+                                onClick: () => handlePageClick(pageNum, docForPage),
                                 className: 'text-blue-600 hover:text-blue-800 underline font-medium',
-                                title: `View Page ${pageNum}`
+                                title: docForPage ? `View Page ${pageNum} in ${docForPage.original_filename}` : `View Page ${pageNum}`
                             }, `(P${pageNum})`)
                         );
                     });
