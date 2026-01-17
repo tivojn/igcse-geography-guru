@@ -1014,14 +1014,39 @@
             const [loading, setLoading] = useState(true);
             const [settings, setSettings] = useState(null);
             const [modalDocSearch, setModalDocSearch] = useState(''); // Search filter for modal
+            const [modalDocSort, setModalDocSort] = useState('name-asc'); // Sort: name-asc (default A-Z)
 
-            // Filter documents based on search
+            // Filter and sort documents
             const filteredModalDocs = useMemo(() => {
-                if (!modalDocSearch) return documents;
-                return documents.filter(doc =>
-                    doc.original_filename.toLowerCase().includes(modalDocSearch.toLowerCase())
-                );
-            }, [documents, modalDocSearch]);
+                let filtered = documents;
+                if (modalDocSearch) {
+                    filtered = documents.filter(doc =>
+                        doc.original_filename.toLowerCase().includes(modalDocSearch.toLowerCase())
+                    );
+                }
+
+                // Sort the filtered results
+                filtered = [...filtered].sort((a, b) => {
+                    switch (modalDocSort) {
+                        case 'name-asc':
+                            return a.original_filename.localeCompare(b.original_filename);
+                        case 'name-desc':
+                            return b.original_filename.localeCompare(a.original_filename);
+                        case 'date-newest':
+                            return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+                        case 'date-oldest':
+                            return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+                        case 'pages-most':
+                            return (b.page_count || 0) - (a.page_count || 0);
+                        case 'pages-least':
+                            return (a.page_count || 0) - (b.page_count || 0);
+                        default:
+                            return 0;
+                    }
+                });
+
+                return filtered;
+            }, [documents, modalDocSearch, modalDocSort]);
 
             // Context type labels
             const contextLabels = {
@@ -1178,37 +1203,56 @@
                                             </div>
                                         </div>
 
-                                        {/* Search Filter */}
-                                        {documents.length > 5 && (
-                                            <div className="relative mb-2">
-                                                <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--color-text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                                </svg>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Filter documents..."
-                                                    value={modalDocSearch}
-                                                    onChange={(e) => setModalDocSearch(e.target.value)}
-                                                    className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg"
-                                                    style={{
-                                                        background: 'var(--color-bg)',
-                                                        border: '1px solid var(--color-border-light)',
-                                                        color: 'var(--color-text)'
-                                                    }}
-                                                />
-                                                {modalDocSearch && (
-                                                    <button
-                                                        onClick={() => setModalDocSearch('')}
-                                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded"
-                                                        style={{ color: 'var(--color-text-muted)' }}
-                                                    >
-                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                        </svg>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
+                                        {/* Search Filter and Sort */}
+                                        <div className="flex gap-2 mb-2">
+                                            {documents.length > 5 && (
+                                                <div className="relative flex-1">
+                                                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--color-text-muted)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                                    </svg>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Filter documents..."
+                                                        value={modalDocSearch}
+                                                        onChange={(e) => setModalDocSearch(e.target.value)}
+                                                        className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg"
+                                                        style={{
+                                                            background: 'var(--color-bg)',
+                                                            border: '1px solid var(--color-border-light)',
+                                                            color: 'var(--color-text)'
+                                                        }}
+                                                    />
+                                                    {modalDocSearch && (
+                                                        <button
+                                                            onClick={() => setModalDocSearch('')}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded"
+                                                            style={{ color: 'var(--color-text-muted)' }}
+                                                        >
+                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                            </svg>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+                                            <select
+                                                value={modalDocSort}
+                                                onChange={(e) => setModalDocSort(e.target.value)}
+                                                className={`${documents.length > 5 ? 'w-40' : 'w-full'} px-2 py-1.5 text-xs rounded-lg`}
+                                                style={{
+                                                    background: 'var(--color-bg)',
+                                                    border: '1px solid var(--color-border-light)',
+                                                    color: 'var(--color-text)'
+                                                }}
+                                            >
+                                                <option value="name-asc">Sort: Name (A→Z)</option>
+                                                <option value="name-desc">Sort: Name (Z→A)</option>
+                                                <option value="date-newest">Sort: Newest First</option>
+                                                <option value="date-oldest">Sort: Oldest First</option>
+                                                <option value="pages-most">Sort: Most Pages</option>
+                                                <option value="pages-least">Sort: Fewest Pages</option>
+                                            </select>
+                                        </div>
 
                                         <div
                                             className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto rounded-lg p-2"
