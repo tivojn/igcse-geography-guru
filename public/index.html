@@ -1954,7 +1954,8 @@
             useEffect(() => {
                 setCurrentIndex(0);
                 setFlipped(false);
-                setIsTyping(false);
+                // Keep typing mode active if in Type Mode
+                if (mode !== 'type') setIsTyping(false);
                 setStats({ knew: 0, didnt: 0 });
             }, [activeSource]);
 
@@ -1965,7 +1966,8 @@
                 if (currentIndex < activeDefinitions.length - 1) {
                     setCurrentIndex(currentIndex + 1);
                     setFlipped(false);
-                    setIsTyping(false);
+                    // Keep typing mode active if in Type Mode
+                    if (mode !== 'type') setIsTyping(false);
                 }
             };
 
@@ -1973,7 +1975,8 @@
                 if (currentIndex > 0) {
                     setCurrentIndex(currentIndex - 1);
                     setFlipped(false);
-                    setIsTyping(false);
+                    // Keep typing mode active if in Type Mode
+                    if (mode !== 'type') setIsTyping(false);
                 }
             };
 
@@ -1989,7 +1992,8 @@
                 }));
 
                 setFlipped(false);
-                setIsTyping(false);
+                // Keep typing mode active if in Type Mode
+                if (mode !== 'type') setIsTyping(false);
                 if (currentIndex < activeDefinitions.length - 1) {
                     setTimeout(() => setCurrentIndex(currentIndex + 1), 300);
                 }
@@ -2084,7 +2088,7 @@
                             Flip Mode
                         </button>
                         <button
-                            onClick={() => { setMode('type'); setFlipped(false); }}
+                            onClick={() => { setMode('type'); setFlipped(false); setIsTyping(true); }}
                             className="px-4 py-2 rounded-full text-sm font-medium transition"
                             style={{
                                 background: mode === 'type' ? 'var(--color-surface)' : 'transparent',
