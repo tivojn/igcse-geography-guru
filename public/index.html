@@ -622,18 +622,7 @@
             const [selectedDocs, setSelectedDocs] = useState([]);
             const [userQuestion, setUserQuestion] = useState('');
             const [loading, setLoading] = useState(true);
-            const [querying, setQuerying] = useState(false);
-            const [result, setResult] = useState(null);
             const [settings, setSettings] = useState(null);
-            const [showDocViewer, setShowDocViewer] = useState(false);
-            const [viewingDoc, setViewingDoc] = useState(null);
-            const [viewerPage, setViewerPage] = useState(1);
-            const [viewerZoom, setViewerZoom] = useState(100);
-            const [viewerFullscreen, setViewerFullscreen] = useState(false);
-            const [viewerPageLoading, setViewerPageLoading] = useState(false);
-            const [viewerTotalPages, setViewerTotalPages] = useState(0);
-            const viewerPdfRef = useRef(null);
-            const viewerCanvasRef = useRef(null);
 
             // Context type labels
             const contextLabels = {
@@ -645,11 +634,22 @@
                 'general': 'Content'
             };
 
+            // Get the display text from context based on type
+            const getContextDisplayText = () => {
+                if (!context) return '';
+                if (contextType === 'sample_question') return context.question || '';
+                if (contextType === 'tip') return context.text || '';
+                if (contextType === 'common_error') return context.error || '';
+                if (contextType === 'definition') return `${context.term}: ${context.definition}`;
+                return context.text || String(context);
+            };
+
             // Load documents and settings on open (use ai_settings for API keys - same as main Settings)
             useEffect(() => {
                 if (isOpen) {
                     setLoading(true);
-                    setResult(null);
+                    // Pre-fill userQuestion with context text
+                    setUserQuestion(getContextDisplayText());
                     Promise.all([
                         api.get('/pdf/documents'),
                         api.get('/ai/settings')
@@ -662,63 +662,7 @@
                         setLoading(false);
                     });
                 }
-            }, [isOpen]);
-
-            // Load PDF and get total pages when doc viewer opens
-            useEffect(() => {
-                if (!showDocViewer || !viewingDoc?.public_url) {
-                    viewerPdfRef.current = null;
-                    setViewerTotalPages(0);
-                    return;
-                }
-
-                const loadPdf = async () => {
-                    setViewerPageLoading(true);
-                    try {
-                        const pdf = await pdfjsLib.getDocument(viewingDoc.public_url).promise;
-                        viewerPdfRef.current = pdf;
-                        setViewerTotalPages(pdf.numPages);
-                    } catch (err) {
-                        console.error('Failed to load PDF:', err);
-                        setViewerPageLoading(false);
-                    }
-                };
-                loadPdf();
-            }, [showDocViewer, viewingDoc?.public_url]);
-
-            // Render PDF page to canvas when page changes
-            useEffect(() => {
-                if (!viewerPdfRef.current || !viewerCanvasRef.current || !showDocViewer) return;
-
-                const renderPage = async () => {
-                    setViewerPageLoading(true);
-                    try {
-                        const page = await viewerPdfRef.current.getPage(viewerPage);
-                        const canvas = viewerCanvasRef.current;
-                        const context = canvas.getContext('2d');
-
-                        const scale = 2;
-                        const viewport = page.getViewport({ scale });
-
-                        canvas.width = viewport.width;
-                        canvas.height = viewport.height;
-                        canvas.style.width = `${viewport.width / scale}px`;
-                        canvas.style.height = `${viewport.height / scale}px`;
-
-                        await page.render({
-                            canvasContext: context,
-                            viewport: viewport
-                        }).promise;
-
-                        setViewerPageLoading(false);
-                    } catch (err) {
-                        console.error('Failed to render page:', err);
-                        setViewerPageLoading(false);
-                    }
-                };
-
-                renderPage();
-            }, [viewerPage, viewerTotalPages, showDocViewer]);
+            }, [isOpen, context, contextType]);
 
             const toggleDoc = (docId) => {
                 setSelectedDocs(prev =>
@@ -731,92 +675,26 @@
             const selectAll = () => setSelectedDocs(documents.map(d => d.id));
             const deselectAll = () => setSelectedDocs([]);
 
-            const handleSubmit = async () => {
+            const handleSubmit = () => {
                 if (selectedDocs.length === 0) {
                     alert('Please select at least one document');
                     return;
                 }
 
-                // Build the query - combine context with optional user question
-                let query = '';
-                if (contextType === 'sample_question') {
-                    query = `Regarding this exam question and answer:\n\nQuestion: ${context.question}\n\nStudent Answer: ${context.answer}\n\nTeacher Comments: ${context.comments}`;
-                } else if (contextType === 'tip') {
-                    query = `Regarding this study tip:\n\n${context.text}`;
-                } else if (contextType === 'common_error') {
-                    query = `Regarding this common error:\n\nError: ${context.error}\n\nWhy it's wrong: ${context.explanation}`;
-                } else if (contextType === 'definition') {
-                    query = `Regarding this term and definition:\n\n${context.term}: ${context.definition}`;
-                } else {
-                    query = context.text || context;
-                }
-
-                if (userQuestion.trim()) {
-                    query += `\n\nUser's Question: ${userQuestion}`;
-                } else {
-                    query += `\n\nPlease provide more context, examples, and explanation from the study materials.`;
-                }
-
-                // Navigate to Document Chat with prefilled data
-                if (onNavigateToDocChat) {
-                    onNavigateToDocChat({
-                        question: query,
-                        documentIds: selectedDocs
-                    });
-                    onClose();
+                if (!onNavigateToDocChat) {
+                    alert('Navigation not available. Please go to Document Chat directly.');
                     return;
                 }
 
-                // Fallback: do inline search if navigation not available
-                // Check if OpenAI key is validated (api key exists and is validated)
-                const hasValidKey = settings?.openai_api_key && settings?.openai_validated;
-                if (!hasValidKey) {
-                    alert('Please configure your OpenAI API key in the main Settings page first (go to Settings > AI Providers > OpenAI)');
-                    return;
-                }
+                // Use the user's question directly (already pre-filled with context)
+                const query = userQuestion.trim() || getContextDisplayText();
 
-                setQuerying(true);
-                setResult(null);
-
-                try {
-                    // Use stored keys from main Settings
-                    const defaultProvider = settings?.default_provider || 'openai';
-                    const response = await api.post('/rag/chat', {
-                        question: query,
-                        document_ids: selectedDocs,
-                        use_stored_key: true,  // Use stored key from ai_settings
-                        llm_provider: defaultProvider,
-                        llm_model: settings?.[`${defaultProvider}_model`] || 'gpt-4o-mini'
-                    });
-
-                    if (response?.answer) {
-                        setResult({
-                            answer: response.answer,
-                            sources: response.sources || []
-                        });
-                    } else {
-                        setResult({
-                            answer: 'Sorry, I could not find relevant information. ' + (response?.error || ''),
-                            sources: []
-                        });
-                    }
-                } catch (err) {
-                    setResult({
-                        answer: 'Error: ' + err.message,
-                        sources: []
-                    });
-                }
-
-                setQuerying(false);
-            };
-
-            const openDocAtPage = (source) => {
-                const doc = documents.find(d => d.id === source.document_id);
-                if (doc?.public_url) {
-                    setViewingDoc(doc);
-                    setViewerPage(source.page_number || 1);
-                    setShowDocViewer(true);
-                }
+                // Navigate to Document Chat with prefilled data - auto-submits there
+                onNavigateToDocChat({
+                    question: query,
+                    documentIds: selectedDocs
+                });
+                onClose();
             };
 
             if (!isOpen) return null;
@@ -929,44 +807,17 @@
                                     {/* Submit Button */}
                                     <button
                                         onClick={handleSubmit}
-                                        disabled={querying || selectedDocs.length === 0}
-                                        className="w-full py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium"
+                                        disabled={selectedDocs.length === 0}
+                                        className="w-full py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition font-medium flex items-center justify-center gap-2"
                                     >
-                                        {querying ? '🔍 Searching...' : '🔍 Search in Document'}
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                        Search in Document Chat
                                     </button>
-
-                                    {/* Result */}
-                                    {result && (
-                                        <div className="mt-4 border-t pt-4">
-                                            <h4 className="font-medium text-gray-700 mb-2">📖 From your study materials:</h4>
-                                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                                <p className="text-gray-800 whitespace-pre-wrap">{result.answer}</p>
-
-                                                {/* Source Citations */}
-                                                {result.sources?.length > 0 && (
-                                                    <div className="mt-3 pt-3 border-t border-blue-200">
-                                                        <p className="text-xs font-medium text-blue-700 mb-2">📍 Sources (click to view original):</p>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {result.sources.map((s, idx) => (
-                                                                <button
-                                                                    key={idx}
-                                                                    onClick={() => openDocAtPage(s)}
-                                                                    className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200 hover:shadow-md transition flex items-center gap-1.5 border border-blue-200"
-                                                                    title={`Click to view: ${s.content?.substring(0, 100)}...`}
-                                                                >
-                                                                    <span className="text-blue-500">🔗</span>
-                                                                    <span className="truncate max-w-[140px] font-medium">
-                                                                        {s.document_name || 'Document'}
-                                                                    </span>
-                                                                    <span className="bg-blue-200 px-1.5 py-0.5 rounded text-xs font-bold">p.{s.page_number}</span>
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
+                                    <p className="text-xs text-gray-400 text-center mt-2">
+                                        Opens Document Chat and automatically searches
+                                    </p>
                                 </div>
                             )}
                         </div>
@@ -978,121 +829,6 @@
                             </p>
                         </div>
                     </div>
-
-                    {/* Document Viewer Sub-Modal - Enhanced */}
-                    {showDocViewer && viewingDoc?.public_url && (
-                        <div className={`fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[60] ${viewerFullscreen ? 'p-0' : 'p-4'}`}>
-                            <div className={`bg-white flex flex-col ${viewerFullscreen ? 'w-full h-full' : 'rounded-xl w-11/12 h-5/6 max-w-6xl'}`}>
-                                {/* Header with controls */}
-                                <div className="p-3 border-b flex items-center justify-between bg-gray-50 flex-shrink-0">
-                                    <div className="flex items-center gap-3 flex-wrap">
-                                        <h4 className="font-semibold text-gray-800 truncate max-w-[200px]" title={viewingDoc.original_filename}>
-                                            {viewingDoc.original_filename}
-                                        </h4>
-
-                                        {/* Page Navigation */}
-                                        <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1">
-                                            <button
-                                                onClick={() => setViewerPage(Math.max(1, viewerPage - 1))}
-                                                className="px-2 py-0.5 hover:bg-gray-100 rounded transition"
-                                                title="Previous page"
-                                            >
-                                                ◀
-                                            </button>
-                                            <span className="text-sm font-medium px-2">Page {viewerPage}{viewerTotalPages > 0 ? ` / ${viewerTotalPages}` : ''}</span>
-                                            <button
-                                                onClick={() => setViewerPage(Math.min(viewerTotalPages || 999, viewerPage + 1))}
-                                                className="px-2 py-0.5 hover:bg-gray-100 rounded transition"
-                                                title="Next page"
-                                                disabled={viewerTotalPages > 0 && viewerPage >= viewerTotalPages}
-                                            >
-                                                ▶
-                                            </button>
-                                        </div>
-
-                                        {/* Zoom Controls */}
-                                        <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1">
-                                            <button
-                                                onClick={() => setViewerZoom(Math.max(50, viewerZoom - 25))}
-                                                className="px-2 py-0.5 hover:bg-gray-100 rounded transition font-bold"
-                                                title="Zoom out"
-                                            >
-                                                −
-                                            </button>
-                                            <span className="text-sm font-medium px-2 min-w-[50px] text-center">{viewerZoom}%</span>
-                                            <button
-                                                onClick={() => setViewerZoom(Math.min(200, viewerZoom + 25))}
-                                                className="px-2 py-0.5 hover:bg-gray-100 rounded transition font-bold"
-                                                title="Zoom in"
-                                            >
-                                                +
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Action Buttons */}
-                                    <div className="flex items-center gap-2">
-                                        {/* Open in New Tab */}
-                                        <button
-                                            onClick={() => window.open(`${viewingDoc.public_url}#page=${viewerPage}`, '_blank')}
-                                            className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm hover:bg-blue-200 transition flex items-center gap-1"
-                                            title="Open in new tab for full search (Cmd+F)"
-                                        >
-                                            <span>🔍</span>
-                                            <span className="hidden sm:inline">Search (New Tab)</span>
-                                        </button>
-
-                                        {/* Fullscreen Toggle */}
-                                        <button
-                                            onClick={() => setViewerFullscreen(!viewerFullscreen)}
-                                            className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition flex items-center gap-1"
-                                            title={viewerFullscreen ? "Exit fullscreen" : "Fullscreen"}
-                                        >
-                                            <span>{viewerFullscreen ? '⊙' : '⛶'}</span>
-                                            <span className="hidden sm:inline">{viewerFullscreen ? 'Exit' : 'Fullscreen'}</span>
-                                        </button>
-
-                                        {/* Close */}
-                                        <button
-                                            onClick={() => { setShowDocViewer(false); setViewerFullscreen(false); setViewerZoom(100); }}
-                                            className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-sm hover:bg-red-200 transition"
-                                            title="Close viewer"
-                                        >
-                                            ✕
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Search Tip Bar */}
-                                <div className="px-3 py-1.5 bg-yellow-50 border-b text-xs text-yellow-800 flex items-center gap-2">
-                                    <span>💡</span>
-                                    <span>Tip: Click "Search (New Tab)" to use Cmd+F for keyword search in the document</span>
-                                </div>
-
-                                {/* PDF Viewer */}
-                                <div className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center relative" style={{ padding: viewerFullscreen ? '0' : '8px' }}>
-                                    {viewerPageLoading && (
-                                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-90 z-10">
-                                            <div className="text-center">
-                                                <div className="animate-spin text-4xl mb-2">⏳</div>
-                                                <p className="text-gray-600">Loading page {viewerPage}...</p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    <div style={{
-                                        transform: `scale(${viewerZoom / 100})`,
-                                        transformOrigin: 'top center'
-                                    }}>
-                                        <canvas
-                                            ref={viewerCanvasRef}
-                                            className="border rounded bg-white shadow-lg"
-                                            style={{ maxWidth: '100%' }}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             );
         }
@@ -1282,8 +1018,8 @@
                             {activeTab === 'learn' && <LearnTab data={data} onNavigate={navigateTo} onOpenRAG={openRAGModal} />}
                             {activeTab === 'flashcards' && <FlashcardsTab definitions={data?.definitions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                             {activeTab === 'test-yourself' && <TestYourselfTab topicCode={topic.topic_number} topicName={topic.topic_name} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
-                            {activeTab === 'exam-practice' && <ExamPracticeTab topicId={topic.id} topicName={topic.topic_name} />}
-                            {activeTab === 'study-tips' && <StudyTipsTab topicId={topic.id} />}
+                            {activeTab === 'exam-practice' && <ExamPracticeTab topicId={topic.id} topicName={topic.topic_name} onNavigateToDocChat={onNavigateToDocChat} />}
+                            {activeTab === 'study-tips' && <StudyTipsTab topicId={topic.id} onNavigateToDocChat={onNavigateToDocChat} />}
                             {activeTab === 'quiz' && <QuizTab questions={data?.questions || []} topicId={topic.id} typingSettings={typingSettings} startIndex={startIndex} onStartIndexUsed={() => setStartIndex(0)} />}
                         </div>
                     </div>
@@ -1976,7 +1712,7 @@
         }
 
         // Exam Practice Tab Component - Shows exam questions with model answers for this topic
-        function ExamPracticeTab({ topicId, topicName }) {
+        function ExamPracticeTab({ topicId, topicName, onNavigateToDocChat }) {
             const [questions, setQuestions] = useState([]);
             const [sampleAnswers, setSampleAnswers] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -2066,9 +1802,12 @@
                                                             comments: ''
                                                         }, 'sample_question');
                                                     }}
-                                                    className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600 transition flex items-center gap-1"
+                                                    className="p-2 bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 transition"
+                                                    title="Search in study materials"
                                                 >
-                                                    📚 Talk to Documents
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                                    </svg>
                                                 </button>
                                             </div>
                                         </div>
@@ -2144,9 +1883,12 @@
                                                                 comments: sa.teacher_comments
                                                             }, 'sample_question');
                                                         }}
-                                                        className="px-3 py-1.5 bg-teal-500 text-white rounded-lg text-sm hover:bg-teal-600 transition flex items-center gap-1"
+                                                        className="p-2 bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 transition"
+                                                        title="Search in study materials"
                                                     >
-                                                        📚 Talk to Documents
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                                        </svg>
                                                     </button>
                                                 </div>
                                             </div>
@@ -2167,13 +1909,14 @@
                         onClose={() => setRagModalOpen(false)}
                         context={ragContext}
                         contextType={ragContextType}
+                        onNavigateToDocChat={onNavigateToDocChat}
                     />
                 </div>
             );
         }
 
         // Study Tips Tab Component - Shows tips and common errors for this topic
-        function StudyTipsTab({ topicId }) {
+        function StudyTipsTab({ topicId, onNavigateToDocChat }) {
             const [tips, setTips] = useState([]);
             const [errors, setErrors] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -2256,9 +1999,12 @@
                                                 </span>
                                                 <button
                                                     onClick={() => openRAGModal({ text: tip.tip_text }, 'tip')}
-                                                    className="px-2 py-1 bg-teal-500 text-white rounded text-xs hover:bg-teal-600 transition flex items-center gap-1"
+                                                    className="p-1.5 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition"
+                                                    title="Search in study materials"
                                                 >
-                                                    📚 Talk to Docs
+                                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                                    </svg>
                                                 </button>
                                             </div>
                                             <p className="text-gray-700">{tip.tip_text}</p>
@@ -2287,9 +2033,12 @@
                                                             error: error.error_description,
                                                             explanation: error.why_wrong
                                                         }, 'common_error')}
-                                                        className="ml-2 px-2 py-1 bg-teal-500 text-white rounded text-xs hover:bg-teal-600 transition flex items-center gap-1 whitespace-nowrap"
+                                                        className="ml-2 p-1.5 bg-teal-100 text-teal-700 rounded hover:bg-teal-200 transition flex-shrink-0"
+                                                        title="Search in study materials"
                                                     >
-                                                        📚 Talk to Docs
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                                        </svg>
                                                     </button>
                                                 </div>
                                                 {error.why_wrong && (
@@ -2311,6 +2060,7 @@
                         onClose={() => setRagModalOpen(false)}
                         context={ragContext}
                         contextType={ragContextType}
+                        onNavigateToDocChat={onNavigateToDocChat}
                     />
                 </div>
             );

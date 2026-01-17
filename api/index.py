@@ -479,6 +479,109 @@ def search_chunks_fallback(query_embedding, match_count=8, filter_document_id=No
     results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
     return results[:match_count]
 
+def extract_key_terms(query):
+    """Extract meaningful terms from a query, filtering out common words."""
+    # Common stop words to filter out
+    stop_words = {
+        'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+        'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+        'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare',
+        'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as',
+        'into', 'through', 'during', 'before', 'after', 'above', 'below',
+        'between', 'under', 'again', 'further', 'then', 'once', 'here',
+        'there', 'when', 'where', 'why', 'how', 'all', 'each', 'every',
+        'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor',
+        'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'just',
+        'and', 'but', 'if', 'or', 'because', 'until', 'while', 'although',
+        'this', 'that', 'these', 'those', 'what', 'which', 'who', 'whom',
+        'explain', 'describe', 'compare', 'contrast', 'define', 'discuss',
+        'evaluate', 'analyse', 'analyze', 'briefly', 'outline', 'state'
+    }
+    # Extract words, filter stop words, and return meaningful terms
+    words = re.findall(r'\b[a-zA-Z]{3,}\b', query.lower())
+    return [w for w in words if w not in stop_words]
+
+def hybrid_search_chunks(query, query_embedding, match_count=15, filter_document_id=None):
+    """Hybrid search combining semantic similarity with keyword matching.
+    This significantly improves retrieval for definition/terminology queries."""
+    import math
+
+    # Extract key terms from query for keyword boosting
+    key_terms = extract_key_terms(query)
+    print(f"[RAG DEBUG] Hybrid search - key terms: {key_terms}")
+
+    # Fetch all chunks with embeddings
+    params = {'select': 'id,document_id,chunk_index,page_number,content,token_count,embedding'}
+    if filter_document_id:
+        params['document_id'] = f'eq.{filter_document_id}'
+
+    chunks = supabase_get('pdf_chunks', params)
+    if not chunks or isinstance(chunks, dict):
+        return []
+
+    def cosine_similarity(vec1, vec2):
+        if not vec1 or not vec2 or len(vec1) != len(vec2):
+            return 0
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        norm1 = math.sqrt(sum(a * a for a in vec1))
+        norm2 = math.sqrt(sum(b * b for b in vec2))
+        if norm1 == 0 or norm2 == 0:
+            return 0
+        return dot_product / (norm1 * norm2)
+
+    def keyword_score(content, terms):
+        """Calculate keyword match score based on term frequency."""
+        if not terms or not content:
+            return 0
+        content_lower = content.lower()
+        score = 0
+        for term in terms:
+            # Count occurrences of the term
+            count = content_lower.count(term)
+            if count > 0:
+                score += min(count, 3)  # Cap at 3 to avoid over-weighting
+        return score / (len(terms) * 3)  # Normalize to 0-1 range
+
+    results = []
+    for chunk in chunks:
+        chunk_embedding = chunk.get('embedding')
+        content = chunk.get('content', '')
+
+        if not chunk_embedding:
+            continue
+
+        # Parse embedding if it's a string
+        if isinstance(chunk_embedding, str):
+            try:
+                chunk_embedding = json.loads(chunk_embedding)
+            except:
+                continue
+
+        # Calculate semantic similarity
+        semantic_sim = cosine_similarity(query_embedding, chunk_embedding)
+
+        # Calculate keyword score
+        kw_score = keyword_score(content, key_terms)
+
+        # Hybrid score: weighted combination
+        # If keywords match strongly, boost the result significantly
+        # Weight: 60% semantic + 40% keyword, with bonus for keyword matches
+        if kw_score > 0:
+            # Boost chunks that contain query keywords
+            hybrid_score = (0.6 * semantic_sim) + (0.4 * kw_score) + (0.15 * kw_score)
+        else:
+            hybrid_score = semantic_sim
+
+        chunk_result = {k: v for k, v in chunk.items() if k != 'embedding'}
+        chunk_result['similarity'] = hybrid_score
+        chunk_result['semantic_similarity'] = semantic_sim
+        chunk_result['keyword_score'] = kw_score
+        results.append(chunk_result)
+
+    # Sort by hybrid score
+    results.sort(key=lambda x: x.get('similarity', 0), reverse=True)
+    return results[:match_count]
+
 def upload_to_supabase_storage(bucket, path, file_data, content_type='application/pdf'):
     """Upload file to Supabase storage"""
     url = f"{SUPABASE_URL}/storage/v1/object/{bucket}/{path}"
@@ -919,6 +1022,53 @@ class handler(BaseHTTPRequestHandler):
             self._json_response(200, {
                 'query': query,
                 'method': 'brute_force_python',
+                'total_results': len(results),
+                'results': results
+            })
+            return
+
+        # Debug endpoint to test hybrid search (semantic + keyword)
+        if path == '/debug/hybrid':
+            query = self._get_query_param('q')
+            doc_id = self._get_query_param('document_id')
+            if not query:
+                self._json_response(400, {"error": "Missing query parameter 'q'"})
+                return
+
+            # Get embedding for query
+            settings = supabase_get('ai_settings', {'select': 'openai_api_key', 'limit': '1'})
+            if not settings or not settings[0].get('openai_api_key'):
+                self._json_response(400, {"error": "No OpenAI API key configured"})
+                return
+
+            api_key = settings[0]['openai_api_key']
+            emb_result = get_openai_embedding(api_key, query)
+            if not emb_result.get('success'):
+                self._json_response(500, {"error": f"Embedding failed: {emb_result.get('error')}"})
+                return
+
+            query_embedding = emb_result['embedding']
+
+            # Use hybrid search
+            key_terms = extract_key_terms(query)
+            chunks = hybrid_search_chunks(query, query_embedding, 15, doc_id)
+
+            results = []
+            for i, chunk in enumerate(chunks or []):
+                results.append({
+                    'rank': i + 1,
+                    'page_number': chunk.get('page_number'),
+                    'hybrid_similarity': round(chunk.get('similarity', 0), 4),
+                    'semantic_similarity': round(chunk.get('semantic_similarity', 0), 4),
+                    'keyword_score': round(chunk.get('keyword_score', 0), 4),
+                    'content_preview': chunk.get('content', '')[:300],
+                    'chunk_index': chunk.get('chunk_index')
+                })
+
+            self._json_response(200, {
+                'query': query,
+                'method': 'hybrid_search',
+                'key_terms': key_terms,
                 'total_results': len(results),
                 'results': results
             })
@@ -1636,92 +1786,43 @@ Return ONLY a JSON array with this format:
                     docs = supabase_get('pdf_documents', {'select': 'id,original_filename'})
                     doc_info = {d['id']: d.get('original_filename', 'Document') for d in (docs or [])}
 
-                # Search for similar chunks - either per-doc or across all
+                # Search for similar chunks using hybrid search (semantic + keyword)
                 all_chunks = []
-                debug_info = {'rpc_results': [], 'fallback_results': [], 'document_ids': document_ids}
+                debug_info = {'search_method': 'hybrid', 'document_ids': document_ids}
 
                 if document_ids:
                     # Multi-doc: search each document and combine results
-                    chunks_per_doc = max(8, 15 // len(document_ids))  # More chunks if fewer docs (increased to capture more relevant pages)
+                    chunks_per_doc = max(10, 20 // len(document_ids))  # More chunks per doc for better coverage
                     for doc_id in document_ids:
-                        search_params = {
-                            'query_embedding': query_embedding,
-                            'match_count': chunks_per_doc,
-                            'filter_document_id': doc_id
-                        }
-                        chunks = supabase_rpc('search_pdf_chunks', search_params)
-                        print(f"[RAG DEBUG] RPC search for doc {doc_id}: {len(chunks) if isinstance(chunks, list) else 'error'} chunks")
-                        if isinstance(chunks, list) and chunks:
-                            print(f"[RAG DEBUG] Top similarity: {chunks[0].get('similarity', 0):.4f}")
-                        debug_info['rpc_results'].append({
-                            'doc_id': doc_id,
-                            'result_type': type(chunks).__name__,
-                            'result_count': len(chunks) if isinstance(chunks, list) else 0,
-                            'error': chunks.get('error') if isinstance(chunks, dict) else None
-                        })
+                        print(f"[RAG DEBUG] Hybrid search for doc {doc_id}")
+                        chunks = hybrid_search_chunks(question, query_embedding, chunks_per_doc, doc_id)
+                        print(f"[RAG DEBUG] Found {len(chunks)} chunks")
+                        if chunks:
+                            top = chunks[0]
+                            print(f"[RAG DEBUG] Top result - similarity: {top.get('similarity', 0):.4f}, "
+                                  f"semantic: {top.get('semantic_similarity', 0):.4f}, "
+                                  f"keyword: {top.get('keyword_score', 0):.4f}, "
+                                  f"page: {top.get('page_number')}")
+                        debug_info[f'doc_{doc_id}_count'] = len(chunks) if chunks else 0
 
-                        # If RPC fails or returns poor results, use fallback
-                        rpc_ok = (
-                            chunks and
-                            isinstance(chunks, list) and
-                            len(chunks) > 0 and
-                            chunks[0].get('similarity', 0) > 0.35
-                        )
-                        if not rpc_ok:
-                            fallback_chunks = search_chunks_fallback(query_embedding, chunks_per_doc, doc_id)
-                            debug_info['fallback_results'].append({
-                                'doc_id': doc_id,
-                                'result_count': len(fallback_chunks) if fallback_chunks else 0
-                            })
-                            # Use fallback if better
-                            if fallback_chunks and len(fallback_chunks) > 0:
-                                fallback_top_sim = fallback_chunks[0].get('similarity', 0)
-                                rpc_top_sim = chunks[0].get('similarity', 0) if chunks and isinstance(chunks, list) and len(chunks) > 0 else 0
-                                if fallback_top_sim > rpc_top_sim:
-                                    chunks = fallback_chunks
-
-                        if chunks and not isinstance(chunks, dict):
+                        if chunks:
                             for c in chunks:
                                 c['doc_filename'] = doc_info.get(doc_id, 'Document')
                             all_chunks.extend(chunks)
                 else:
                     # Search all documents
-                    search_params = {
-                        'query_embedding': query_embedding,
-                        'match_count': 8
-                    }
-                    all_chunks = supabase_rpc('search_pdf_chunks', search_params)
-                    debug_info['rpc_results'].append({
-                        'doc_id': None,
-                        'result_type': type(all_chunks).__name__,
-                        'result_count': len(all_chunks) if isinstance(all_chunks, list) else 0,
-                        'error': all_chunks.get('error') if isinstance(all_chunks, dict) else None
-                    })
+                    print(f"[RAG DEBUG] Hybrid search across all documents")
+                    all_chunks = hybrid_search_chunks(question, query_embedding, 15)
+                    print(f"[RAG DEBUG] Found {len(all_chunks)} chunks total")
+                    if all_chunks:
+                        top = all_chunks[0]
+                        print(f"[RAG DEBUG] Top result - similarity: {top.get('similarity', 0):.4f}, "
+                              f"semantic: {top.get('semantic_similarity', 0):.4f}, "
+                              f"keyword: {top.get('keyword_score', 0):.4f}, "
+                              f"page: {top.get('page_number')}")
+                    debug_info['total_chunks'] = len(all_chunks)
 
-                    # If RPC fails or returns poor results, use fallback
-                    # Check if RPC returned valid results with reasonable similarity
-                    rpc_ok = (
-                        all_chunks and
-                        isinstance(all_chunks, list) and
-                        len(all_chunks) > 0 and
-                        all_chunks[0].get('similarity', 0) > 0.35  # Threshold for decent match
-                    )
-                    if not rpc_ok:
-                        debug_info['rpc_low_similarity'] = True
-                        fallback_chunks = search_chunks_fallback(query_embedding, 8)
-                        debug_info['fallback_results'].append({
-                            'doc_id': None,
-                            'result_count': len(fallback_chunks) if fallback_chunks else 0
-                        })
-                        # Use fallback if it found better results
-                        if fallback_chunks and len(fallback_chunks) > 0:
-                            fallback_top_sim = fallback_chunks[0].get('similarity', 0)
-                            rpc_top_sim = all_chunks[0].get('similarity', 0) if all_chunks and isinstance(all_chunks, list) and len(all_chunks) > 0 else 0
-                            if fallback_top_sim > rpc_top_sim:
-                                all_chunks = fallback_chunks
-                                debug_info['used_fallback'] = True
-
-                # Sort by similarity and take top results
+                # Sort by hybrid similarity and take top results
                 all_chunks = sorted(all_chunks, key=lambda x: x.get('similarity', 0), reverse=True)[:10]
 
                 # Build context from similar chunks
