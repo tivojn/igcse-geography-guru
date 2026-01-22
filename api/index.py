@@ -1518,6 +1518,52 @@ Return ONLY a JSON array with this format:
             return
 
         # ============================================
+        # TTS ENDPOINT (Edge-TTS)
+        # ============================================
+        if '/tts/speak' in path:
+            text = body.get('text', '')
+            if not text:
+                self._json_response(400, {"error": "Missing text"})
+                return
+
+            # Limit text length to prevent Vercel timeout (max ~500 chars for safe execution)
+            MAX_TTS_LENGTH = 500
+            if len(text) > MAX_TTS_LENGTH:
+                text = text[:MAX_TTS_LENGTH]
+
+            try:
+                import asyncio
+                import edge_tts
+
+                async def generate_audio():
+                    voice = "en-US-EmmaMultilingualNeural"
+                    communicate = edge_tts.Communicate(text, voice)
+                    audio_data = b""
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            audio_data += chunk["data"]
+                    return audio_data
+
+                # Run async function
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    audio_bytes = loop.run_until_complete(generate_audio())
+                finally:
+                    loop.close()
+
+                # Return audio as base64
+                audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                self._json_response(200, {"audio": audio_base64, "format": "mp3"})
+                return
+
+            except Exception as e:
+                import traceback
+                print(f"TTS Error: {traceback.format_exc()}")
+                self._json_response(500, {"error": f"TTS generation failed: {str(e)}"})
+                return
+
+        # ============================================
         # RAG POST ENDPOINTS
         # ============================================
 

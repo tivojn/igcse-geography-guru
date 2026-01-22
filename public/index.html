@@ -570,27 +570,55 @@
             }
 
             speak(text) {
-                if (!('speechSynthesis' in window)) return;
-                window.speechSynthesis.cancel();
+                this.init();
+                // Cancel any currently playing TTS audio
+                if (this.currentTtsAudio) {
+                    this.currentTtsAudio.pause();
+                    this.currentTtsAudio = null;
+                }
 
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.rate = 0.9;
-                utterance.pitch = 1.0;
-                utterance.volume = 0.8;
+                // Use Edge-TTS via backend API
+                fetch('/api/tts/speak', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.audio) {
+                        const audioBlob = this.base64ToBlob(data.audio, 'audio/mpeg');
+                        const audioUrl = URL.createObjectURL(audioBlob);
+                        this.currentTtsAudio = new Audio(audioUrl);
+                        this.currentTtsAudio.volume = 0.8;
+                        this.currentTtsAudio.play().catch(err => {
+                            console.warn('TTS playback failed:', err);
+                        });
+                        // Clean up object URL when done
+                        this.currentTtsAudio.onended = () => {
+                            URL.revokeObjectURL(audioUrl);
+                            this.currentTtsAudio = null;
+                        };
+                    }
+                })
+                .catch(err => {
+                    console.warn('Edge-TTS request failed:', err);
+                });
+            }
 
-                const voices = window.speechSynthesis.getVoices();
-                const preferredVoice = voices.find(v =>
-                    (v.name.includes('Google') || v.name.includes('Premium') || v.name.includes('Daniel') || v.name.includes('Samantha'))
-                    && v.lang.startsWith('en')
-                );
-                if (preferredVoice) utterance.voice = preferredVoice;
-
-                window.speechSynthesis.speak(utterance);
+            base64ToBlob(base64, mimeType) {
+                const byteCharacters = atob(base64);
+                const byteNumbers = new Array(byteCharacters.length);
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                return new Blob([byteArray], { type: mimeType });
             }
 
             cancelSpeech() {
-                if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel();
+                if (this.currentTtsAudio) {
+                    this.currentTtsAudio.pause();
+                    this.currentTtsAudio = null;
                 }
             }
         }
