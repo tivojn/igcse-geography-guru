@@ -619,11 +619,15 @@
                             this.currentTtsAudio = null;
                         };
                     } else if (data.error) {
-                        console.warn('TTS error:', data.error);
+                        console.error('TTS error:', data.error);
+                        // Show brief error notification
+                        if (data.error.includes('API key')) {
+                            alert('TTS Error: Please check your AliCloud API key in Settings');
+                        }
                     }
                 })
                 .catch(err => {
-                    console.warn('TTS request failed:', err);
+                    console.error('TTS request failed:', err);
                 });
             }
 
@@ -4286,6 +4290,25 @@
                                             </button>
                                         </div>
 
+                                        {/* Preview Button for any TTS provider */}
+                                        <div className="mt-3 flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    const provider = formData.tts_provider || 'edge';
+                                                    const voice = provider === 'qwen' ? (formData.tts_voice || 'Cherry') : null;
+                                                    const previewText = "Hello! This is a preview of the selected voice.";
+                                                    audioEngine.speak(previewText, provider, voice);
+                                                }}
+                                                className="flex items-center gap-2 px-4 py-2 rounded-lg hover:opacity-80 transition-all"
+                                                style={{ background: 'var(--color-primary)', color: 'white' }}
+                                            >
+                                                🔊 Preview Voice
+                                            </button>
+                                            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                                {(formData.tts_provider || 'edge') === 'edge' ? 'Emma Multilingual' : (formData.tts_voice || 'Cherry')}
+                                            </span>
+                                        </div>
+
                                         {/* Voice Selection for Qwen */}
                                         {formData.tts_provider === 'qwen' && (formData.alicloud_validated || (formData.alicloud_api_key && formData.alicloud_api_key.length > 4)) && (
                                             <div className="mt-3">
@@ -4339,17 +4362,6 @@
                                                             </optgroup>
                                                         )}
                                                     </select>
-                                                    <button
-                                                        onClick={() => {
-                                                            const previewText = "Hello! This is a preview of the selected voice.";
-                                                            audioEngine.speak(previewText, 'qwen', formData.tts_voice || 'Cherry');
-                                                        }}
-                                                        className="px-3 py-2 rounded-lg hover:opacity-80 transition-all"
-                                                        style={{ background: 'var(--color-primary)', color: 'white' }}
-                                                        title="Preview voice"
-                                                    >
-                                                        🔊
-                                                    </button>
                                                 </div>
                                                 {customVoices.length > 0 && (
                                                     <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>

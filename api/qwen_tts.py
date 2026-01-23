@@ -482,9 +482,8 @@ def delete_voice(voice_id: str, voice_type: str, api_key: str) -> dict:
 def generate_tts_custom_voice(text: str, voice_id: str, voice_type: str, api_key: str) -> dict:
     """
     Generate TTS using a custom (designed or cloned) voice.
-    Custom voices require WebSocket API for real-time generation.
-
-    For simplicity, we'll use HTTP API which works with custom voices too.
+    Uses WebSocket Realtime API (OpenAI-compatible protocol).
+    Based on vibevoice implementation.
     """
     if not text or not text.strip():
         return {"error": "No text provided"}
@@ -492,65 +491,126 @@ def generate_tts_custom_voice(text: str, voice_id: str, voice_type: str, api_key
     if not api_key or not api_key.strip():
         return {"error": "No API key provided"}
 
-    # Use the appropriate model based on voice type
+    try:
+        import websocket
+        import ssl
+        import threading
+    except ImportError:
+        return {"error": "websocket-client not installed. Run: pip install websocket-client"}
+
+    # Choose model based on voice type
     if voice_type == "cloned":
         model = "qwen3-tts-vc-realtime-2025-11-27"
     else:
         model = "qwen3-tts-vd-realtime-2025-12-16"
 
-    url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
-    headers = {
-        'Authorization': f'Bearer {api_key}',
-        'Content-Type': 'application/json'
-    }
+    # WebSocket URL with model as query param (vibevoice format)
+    ws_url = f"wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model={model}"
 
-    payload = {
-        "model": model,
-        "input": {
-            "text": text,
-            "voice": voice_id
-        }
-    }
+    audio_chunks = []
+    error_msg = [None]
+    done_event = threading.Event()
+    state = {"phase": "connecting"}
 
-    data = json.dumps(payload).encode()
-
-    try:
-        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
-        with urllib.request.urlopen(req, timeout=60) as response:
-            result = json.loads(response.read().decode('utf-8'))
-
-            output = result.get("output", {})
-            audio_obj = output.get("audio", {})
-            audio_url = audio_obj.get("url", "")
-            audio_data_b64 = audio_obj.get("data", "")
-
-            if audio_url:
-                audio_req = urllib.request.Request(audio_url)
-                with urllib.request.urlopen(audio_req, timeout=60) as audio_resp:
-                    audio_bytes = audio_resp.read()
-                    return {
-                        "audio_base64": base64.b64encode(audio_bytes).decode('utf-8'),
-                        "format": "wav"
-                    }
-            elif audio_data_b64:
-                pcm_data = base64.b64decode(audio_data_b64)
-                wav_data = pcm_to_wav(pcm_data, sample_rate=24000)
-                return {
-                    "audio_base64": base64.b64encode(wav_data).decode('utf-8'),
-                    "format": "wav"
-                }
-            else:
-                return {"error": f"No audio in response: {json.dumps(result)[:500]}"}
-
-    except urllib.error.HTTPError as e:
-        error_body = ""
+    def on_message(ws, message):
         try:
-            error_body = e.read().decode('utf-8')[:500]
-        except:
-            error_body = f"HTTP {e.code}"
-        return {"error": f"API error ({e.code}): {error_body}"}
-    except Exception as e:
-        return {"error": f"TTS generation failed: {str(e)}"}
+            data = json.loads(message)
+            event_type = data.get("type", "")
+
+            if event_type == "session.created":
+                state["phase"] = "session_created"
+                # Send session.update with voice settings
+                ws.send(json.dumps({
+                    "type": "session.update",
+                    "session": {
+                        "voice": voice_id,
+                        "response_format": "pcm",
+                        "sample_rate": 24000,
+                        "mode": "server_commit"
+                    }
+                }))
+
+            elif event_type == "session.updated":
+                state["phase"] = "session_updated"
+                # Send the text input
+                ws.send(json.dumps({
+                    "type": "input_text_buffer.append",
+                    "text": text
+                }))
+                # Commit the input
+                ws.send(json.dumps({
+                    "type": "input_text_buffer.commit"
+                }))
+
+            elif event_type == "response.audio.delta":
+                # Decode and collect audio chunk
+                audio_data = data.get("delta", "")
+                if audio_data:
+                    audio_chunks.append(base64.b64decode(audio_data))
+
+            elif event_type == "response.audio.done":
+                done_event.set()
+
+            elif event_type == "session.finished":
+                done_event.set()
+
+            elif event_type == "error":
+                error_info = data.get("error", {})
+                error_msg[0] = error_info.get("message", f"Unknown error: {data}")
+                done_event.set()
+
+        except Exception as e:
+            error_msg[0] = f"Message parse error: {str(e)}"
+            done_event.set()
+
+    def on_error(ws, error):
+        error_msg[0] = str(error)
+        done_event.set()
+
+    def on_close(ws, close_status_code, close_msg):
+        done_event.set()
+
+    def on_open(ws):
+        state["phase"] = "connected"
+        # Wait for session.created message from server
+
+    # Create WebSocket with auth header
+    ws = websocket.WebSocketApp(
+        ws_url,
+        header=[f"Authorization: Bearer {api_key}"],
+        on_open=on_open,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=on_close
+    )
+
+    # Run in thread with timeout
+    ws_thread = threading.Thread(
+        target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE})
+    )
+    ws_thread.daemon = True
+    ws_thread.start()
+
+    # Wait for completion (max 60 seconds)
+    done_event.wait(timeout=60)
+    ws.close()
+
+    if error_msg[0]:
+        return {"error": f"TTS error: {error_msg[0]}"}
+
+    if not audio_chunks:
+        return {"error": f"No audio received. State: {state['phase']}"}
+
+    # Combine audio chunks (PCM data)
+    pcm_data = b"".join(audio_chunks)
+
+    # Convert PCM to WAV
+    wav_data = pcm_to_wav(pcm_data, sample_rate=24000)
+
+    return {
+        "audio_base64": base64.b64encode(wav_data).decode('utf-8'),
+        "format": "wav"
+    }
 
 
 # For testing
