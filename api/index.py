@@ -8,6 +8,7 @@ import os
 import re
 import urllib.request
 import urllib.error
+import urllib.parse
 import uuid
 import base64
 from io import BytesIO
@@ -36,6 +37,23 @@ OPENAI_MODELS = [
     {"id": "gpt-4o", "name": "GPT-4o (Latest)"},
     {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Fast)"},
     {"id": "gpt-4-turbo", "name": "GPT-4 Turbo"},
+]
+
+# AliCloud (Qwen) Models
+ALICLOUD_MODELS = [
+    {"id": "qwen-max", "name": "Qwen Max (Most Capable)"},
+    {"id": "qwen-plus", "name": "Qwen Plus (Balanced)"},
+    {"id": "qwen-turbo", "name": "Qwen Turbo (Fast)"},
+    {"id": "qwen3-235b-a22b", "name": "Qwen3 235B"},
+    {"id": "qwen3-32b", "name": "Qwen3 32B"},
+]
+
+# AliCloud TTS Voices
+ALICLOUD_TTS_VOICES = [
+    {"id": "Cherry", "name": "Cherry (Female, Friendly)"},
+    {"id": "Ethan", "name": "Ethan (Male, Standard)"},
+    {"id": "Serena", "name": "Serena (Female, Professional)"},
+    {"id": "Chelsie", "name": "Chelsie (Female, Warm)"},
 ]
 
 sessions = {}
@@ -239,6 +257,31 @@ def validate_gemini_key_with_models(api_key):
     except Exception as e:
         return {"valid": False, "error": str(e)}
 
+def validate_alicloud_key(api_key):
+    """Validate AliCloud (DashScope) API key by making a minimal request"""
+    url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    data = json.dumps({
+        "model": "qwen-turbo",
+        "input": {"messages": [{"role": "user", "content": "hi"}]},
+        "parameters": {"max_tokens": 1}
+    }).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            return {"valid": True, "models": ALICLOUD_MODELS}
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {"valid": False, "error": "Invalid API key"}
+        elif e.code == 400:
+            return {"valid": True, "models": ALICLOUD_MODELS}  # Bad request but key is valid
+        return {"valid": False, "error": f"Error: {e.code}"}
+    except Exception as e:
+        return {"valid": False, "error": str(e)}
+
 # AI Provider Call Functions
 def call_claude(api_key, model, prompt, max_tokens=1024):
     """Call Claude API"""
@@ -321,6 +364,33 @@ def call_gemini(api_key, model, prompt, max_tokens=1024):
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else str(e)
         return {"success": False, "error": f"Gemini API error: {e.code} - {error_body}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def call_alicloud(api_key, model, prompt, max_tokens=1024):
+    """Call AliCloud (DashScope/Qwen) API"""
+    url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+    data = json.dumps({
+        "model": model,
+        "input": {"messages": [{"role": "user", "content": prompt}]},
+        "parameters": {"max_tokens": max_tokens}
+    }).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            content = result.get('output', {}).get('text', '')
+            # Try alternative response paths
+            if not content:
+                content = result.get('output', {}).get('choices', [{}])[0].get('message', {}).get('content', '')
+            return {"success": True, "content": content}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else str(e)
+        return {"success": False, "error": f"AliCloud API error: {e.code} - {error_body}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -646,6 +716,16 @@ class handler(BaseHTTPRequestHandler):
             self._json_response(200, {"status": "healthy"})
             return
 
+        if path == '/auth/me':
+            user_id = self._get_user_id()
+            if user_id:
+                users = supabase_get('users', {'id': f'eq.{user_id}', 'select': 'id,username,display_name'})
+                if users:
+                    self._json_response(200, users[0])
+                    return
+            self._json_response(401, {"error": "Not authenticated"})
+            return
+
         if path == '/topics':
             topics = supabase_get('topics', {'select': '*', 'order': 'theme_number,topic_number'})
             themes = {}
@@ -743,7 +823,7 @@ class handler(BaseHTTPRequestHandler):
             s = settings[0] if settings else {}
 
             # Fetch dynamic models for validated providers
-            models = {"claude": CLAUDE_MODELS, "gemini": GEMINI_MODELS, "openai": OPENAI_MODELS}
+            models = {"claude": CLAUDE_MODELS, "gemini": GEMINI_MODELS, "openai": OPENAI_MODELS, "alicloud": ALICLOUD_MODELS}
 
             # If OpenAI key is validated, fetch dynamic model list
             if s.get('openai_validated') and s.get('openai_api_key'):
@@ -764,7 +844,7 @@ class handler(BaseHTTPRequestHandler):
                     pass  # Fall back to static models
 
             # Mask API keys for response
-            for k in ['claude_api_key', 'gemini_api_key', 'openai_api_key']:
+            for k in ['claude_api_key', 'gemini_api_key', 'openai_api_key', 'alicloud_api_key']:
                 if s.get(k):
                     s[k] = '•' * 20 + s[k][-4:]
 
@@ -799,6 +879,8 @@ class handler(BaseHTTPRequestHandler):
                     self._json_response(200, {"models": GEMINI_MODELS})
                 elif provider == 'openai':
                     self._json_response(200, {"models": OPENAI_MODELS})
+                elif provider == 'alicloud':
+                    self._json_response(200, {"models": ALICLOUD_MODELS})
                 else:
                     self._json_response(200, {"models": []})
                 return
@@ -813,8 +895,34 @@ class handler(BaseHTTPRequestHandler):
             elif provider == 'openai':
                 result = validate_openai_key(api_key)
                 self._json_response(200, {"models": result.get('models', OPENAI_MODELS)})
+            elif provider == 'alicloud':
+                # AliCloud doesn't have a public models API, return static list
+                self._json_response(200, {"models": ALICLOUD_MODELS})
             else:
                 self._json_response(200, {"models": []})
+            return
+
+        # TTS Voices endpoint
+        if '/tts/voices' in path:
+            # Parse query string for API key
+            query_string = self.path.split('?')[1] if '?' in self.path else ''
+            params = dict(p.split('=') for p in query_string.split('&') if '=' in p) if query_string else {}
+            alicloud_key = urllib.parse.unquote(params.get('api_key', ''))
+
+            from api.qwen_tts import get_voices, list_custom_voices, QWEN_PRESET_VOICES
+
+            # Start with preset voices
+            all_voices = [{"voice_id": v["voice_id"], "name": v["name"], "description": v.get("description", ""),
+                          "language": v.get("language", "en"), "is_preset": True, "voice_type": "preset"}
+                         for v in QWEN_PRESET_VOICES]
+
+            # Add custom voices if API key is provided
+            if alicloud_key:
+                custom_result = list_custom_voices(alicloud_key)
+                if not custom_result.get("error"):
+                    all_voices.extend(custom_result.get("voices", []))
+
+            self._json_response(200, {"voices": all_voices})
             return
 
         if path == '/progress':
@@ -1337,6 +1445,8 @@ class handler(BaseHTTPRequestHandler):
                 result = validate_gemini_key(api_key)
             elif provider == 'openai':
                 result = validate_openai_key(api_key)
+            elif provider == 'alicloud':
+                result = validate_alicloud_key(api_key)
             else:
                 result = {"valid": False, "error": "Unknown provider"}
 
@@ -1371,7 +1481,7 @@ class handler(BaseHTTPRequestHandler):
             if not user_id:
                 user_id = '00000000-0000-0000-0000-000000000001'
             data = {'user_id': user_id}
-            for key in ['default_provider', 'claude_model', 'gemini_model', 'openai_model']:
+            for key in ['default_provider', 'claude_model', 'gemini_model', 'openai_model', 'alicloud_model', 'tts_provider', 'tts_voice']:
                 if key in body:
                     data[key] = body[key]
             supabase_upsert('ai_settings', data)
@@ -1442,6 +1552,8 @@ Return ONLY a JSON array with this format:
                 result = call_openai(api_key, model or 'gpt-4o-mini', prompt)
             elif provider == 'gemini':
                 result = call_gemini(api_key, model or 'gemini-2.0-flash', prompt)
+            elif provider == 'alicloud':
+                result = call_alicloud(api_key, model or 'qwen-turbo', prompt)
             else:
                 self._json_response(400, {"error": f"Unknown provider: {provider}"})
                 return
@@ -1507,6 +1619,8 @@ Return ONLY a JSON array with this format:
                 result = call_openai(api_key, model or 'gpt-4o-mini', prompt)
             elif provider == 'gemini':
                 result = call_gemini(api_key, model or 'gemini-2.0-flash', prompt)
+            elif provider == 'alicloud':
+                result = call_alicloud(api_key, model or 'qwen-turbo', prompt)
             else:
                 self._json_response(400, {"error": f"Unknown provider: {provider}"})
                 return
@@ -1518,7 +1632,7 @@ Return ONLY a JSON array with this format:
             return
 
         # ============================================
-        # TTS ENDPOINT (Edge-TTS)
+        # TTS ENDPOINT (Edge-TTS or Qwen-TTS)
         # ============================================
         if '/tts/speak' in path:
             text = body.get('text', '')
@@ -1526,42 +1640,183 @@ Return ONLY a JSON array with this format:
                 self._json_response(400, {"error": "Missing text"})
                 return
 
+            # Get TTS provider from request or user settings
+            tts_provider = body.get('provider', 'edge')
+            tts_voice = body.get('voice', '')
+
+            # If not specified in request, check user settings
+            if tts_provider == 'edge' and not tts_voice:
+                user_id = self._get_user_id()
+                if not user_id:
+                    user_id = '00000000-0000-0000-0000-000000000001'
+                settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+                if settings:
+                    s = settings[0]
+                    tts_provider = s.get('tts_provider', 'edge')
+                    tts_voice = s.get('tts_voice', '')
+
             # Limit text length to prevent Vercel timeout (max ~500 chars for safe execution)
             MAX_TTS_LENGTH = 500
             if len(text) > MAX_TTS_LENGTH:
                 text = text[:MAX_TTS_LENGTH]
 
             try:
-                import asyncio
-                import edge_tts
+                if tts_provider == 'qwen':
+                    # Use Qwen3-TTS via AliCloud DashScope (using qwen_tts module)
+                    from api.qwen_tts import generate_tts as qwen_generate_tts, generate_tts_custom_voice, QWEN_PRESET_VOICES
 
-                async def generate_audio():
-                    voice = "en-US-EmmaMultilingualNeural"
-                    communicate = edge_tts.Communicate(text, voice)
-                    audio_data = b""
-                    async for chunk in communicate.stream():
-                        if chunk["type"] == "audio":
-                            audio_data += chunk["data"]
-                    return audio_data
+                    # Get AliCloud API key from request body (localStorage) or Supabase settings
+                    alicloud_key = body.get('alicloud_api_key')
 
-                # Run async function
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    audio_bytes = loop.run_until_complete(generate_audio())
-                finally:
-                    loop.close()
+                    if not alicloud_key:
+                        # Try to get from Supabase settings as fallback
+                        user_id = self._get_user_id()
+                        if not user_id:
+                            user_id = '00000000-0000-0000-0000-000000000001'
+                        settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+                        if settings:
+                            alicloud_key = settings[0].get('alicloud_api_key')
 
-                # Return audio as base64
-                audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-                self._json_response(200, {"audio": audio_base64, "format": "mp3"})
-                return
+                    if not alicloud_key:
+                        self._json_response(400, {"error": "Please add your AliCloud API key in Settings to use Qwen TTS"})
+                        return
+
+                    voice = tts_voice or 'Cherry'
+
+                    # Check if this is a preset voice or custom voice
+                    preset_voice_ids = [v['voice_id'] for v in QWEN_PRESET_VOICES]
+                    is_preset = voice in preset_voice_ids
+
+                    if is_preset:
+                        # Generate TTS using preset voice
+                        result = qwen_generate_tts(text, voice, alicloud_key)
+                    else:
+                        # Custom voice - get voice_type from request body
+                        voice_type = body.get('voice_type', 'designed')
+                        result = generate_tts_custom_voice(text, voice, voice_type, alicloud_key)
+
+                    if "error" in result:
+                        self._json_response(500, {"error": result["error"]})
+                        return
+
+                    self._json_response(200, {"audio": result["audio_base64"], "format": result["format"]})
+                    return
+
+                else:
+                    # Default: Use Edge-TTS
+                    import asyncio
+                    import edge_tts
+
+                    async def generate_audio():
+                        voice = "en-US-EmmaMultilingualNeural"
+                        communicate = edge_tts.Communicate(text, voice)
+                        audio_data = b""
+                        async for chunk in communicate.stream():
+                            if chunk["type"] == "audio":
+                                audio_data += chunk["data"]
+                        return audio_data
+
+                    # Run async function
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        audio_bytes = loop.run_until_complete(generate_audio())
+                    finally:
+                        loop.close()
+
+                    # Return audio as base64
+                    audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                    self._json_response(200, {"audio": audio_base64, "format": "mp3"})
+                    return
 
             except Exception as e:
                 import traceback
                 print(f"TTS Error: {traceback.format_exc()}")
                 self._json_response(500, {"error": f"TTS generation failed: {str(e)}"})
                 return
+
+        # ============================================
+        # VOICE CUSTOMIZATION ENDPOINTS (Qwen TTS)
+        # ============================================
+
+        # Design a custom voice from text description
+        if '/tts/design-voice' in path:
+            from api.qwen_tts import design_voice
+
+            voice_prompt = body.get('voice_prompt', '')
+            preferred_name = body.get('preferred_name', 'custom_voice')
+            language = body.get('language', 'en')
+            preview_text = body.get('preview_text', 'Hello, this is a preview of my new custom voice.')
+            api_key = body.get('api_key', '')
+
+            if not api_key:
+                self._json_response(400, {"error": "API key is required"})
+                return
+
+            if not voice_prompt:
+                self._json_response(400, {"error": "Voice description is required"})
+                return
+
+            result = design_voice(voice_prompt, preferred_name, language, preview_text, api_key)
+
+            if result.get("error"):
+                self._json_response(500, {"error": result["error"]})
+                return
+
+            self._json_response(200, result)
+            return
+
+        # Clone a voice from audio sample
+        if '/tts/clone-voice' in path:
+            from api.qwen_tts import clone_voice
+
+            audio_base64 = body.get('audio_base64', '')
+            audio_format = body.get('audio_format', 'wav')
+            preferred_name = body.get('preferred_name', 'cloned_voice')
+            language = body.get('language', 'en')
+            api_key = body.get('api_key', '')
+
+            if not api_key:
+                self._json_response(400, {"error": "API key is required"})
+                return
+
+            if not audio_base64:
+                self._json_response(400, {"error": "Audio data is required"})
+                return
+
+            result = clone_voice(audio_base64, audio_format, preferred_name, language, api_key)
+
+            if result.get("error"):
+                self._json_response(500, {"error": result["error"]})
+                return
+
+            self._json_response(200, result)
+            return
+
+        # Delete a custom voice
+        if '/tts/delete-voice' in path:
+            from api.qwen_tts import delete_voice
+
+            voice_id = body.get('voice_id', '')
+            voice_type = body.get('voice_type', 'designed')
+            api_key = body.get('api_key', '')
+
+            if not api_key:
+                self._json_response(400, {"error": "API key is required"})
+                return
+
+            if not voice_id:
+                self._json_response(400, {"error": "Voice ID is required"})
+                return
+
+            result = delete_voice(voice_id, voice_type, api_key)
+
+            if result.get("error"):
+                self._json_response(500, {"error": result["error"]})
+                return
+
+            self._json_response(200, {"success": True})
+            return
 
         # ============================================
         # RAG POST ENDPOINTS
@@ -1942,6 +2197,8 @@ ANSWER:"""
                     result = call_claude(llm_api_key, llm_model, prompt, max_tokens=4096)
                 elif llm_provider == 'gemini':
                     result = call_gemini(llm_api_key, llm_model, prompt, max_tokens=4096)
+                elif llm_provider == 'alicloud':
+                    result = call_alicloud(llm_api_key, llm_model, prompt, max_tokens=4096)
                 else:
                     result = call_openai(llm_api_key, llm_model, prompt, max_tokens=4096)
 

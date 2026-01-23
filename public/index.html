@@ -426,7 +426,9 @@
             memoryDuration: 5,
             stuckTimeout: 2,
             soundEnabled: true,
-            ttsEnabled: true
+            ttsEnabled: true,
+            ttsProvider: 'edge',
+            ttsVoice: 'Cherry'
         });
 
         // ============================================
@@ -569,7 +571,7 @@
                 });
             }
 
-            speak(text) {
+            speak(text, provider = null, voice = null) {
                 this.init();
                 // Cancel any currently playing TTS audio
                 if (this.currentTtsAudio) {
@@ -577,16 +579,34 @@
                     this.currentTtsAudio = null;
                 }
 
-                // Use Edge-TTS via backend API
+                // Use TTS via backend API (provider from settings or override)
+                const requestBody = { text };
+                if (provider) requestBody.provider = provider;
+                if (voice) requestBody.voice = voice;
+
+                // Include alicloud API key from localStorage if using Qwen TTS
+                const alicloudSettings = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                if (alicloudSettings.raw_key) {
+                    requestBody.alicloud_api_key = alicloudSettings.raw_key;
+                }
+
+                // Include voice_type for custom voices
+                const ttsSettings = JSON.parse(localStorage.getItem('tts_settings') || '{}');
+                if (ttsSettings.voice_type && ttsSettings.voice_type !== 'preset') {
+                    requestBody.voice_type = ttsSettings.voice_type;
+                }
+
                 fetch('/api/tts/speak', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
+                    body: JSON.stringify(requestBody)
                 })
                 .then(res => res.json())
                 .then(data => {
                     if (data.audio) {
-                        const audioBlob = this.base64ToBlob(data.audio, 'audio/mpeg');
+                        // Determine MIME type based on format (mp3 for Edge, wav for Qwen)
+                        const mimeType = data.format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+                        const audioBlob = this.base64ToBlob(data.audio, mimeType);
                         const audioUrl = URL.createObjectURL(audioBlob);
                         this.currentTtsAudio = new Audio(audioUrl);
                         this.currentTtsAudio.volume = 0.8;
@@ -598,10 +618,12 @@
                             URL.revokeObjectURL(audioUrl);
                             this.currentTtsAudio = null;
                         };
+                    } else if (data.error) {
+                        console.warn('TTS error:', data.error);
                     }
                 })
                 .catch(err => {
-                    console.warn('Edge-TTS request failed:', err);
+                    console.warn('TTS request failed:', err);
                 });
             }
 
@@ -647,7 +669,9 @@
                 memoryDuration = 5,
                 stuckTimeout = 2,
                 soundEnabled = true,
-                ttsEnabled = true
+                ttsEnabled = true,
+                ttsProvider = 'edge',
+                ttsVoice = 'Cherry'
             } = settings;
 
             const [input, setInput] = useState('');
@@ -660,13 +684,13 @@
             const inputRef = useRef(null);
             const cursorRef = useRef(null);
 
-            // TTS on mount
+            // TTS on mount - use provider and voice from settings
             useEffect(() => {
                 if (ttsEnabled && text) {
-                    setTimeout(() => audioEngine.speak(text), 300);
+                    setTimeout(() => audioEngine.speak(text, ttsProvider, ttsVoice), 300);
                 }
                 return () => audioEngine.cancelSpeech();
-            }, [text, ttsEnabled]);
+            }, [text, ttsEnabled, ttsProvider, ttsVoice]);
 
             // Countdown timer
             useEffect(() => {
@@ -3742,6 +3766,12 @@
             const [saveStatus, setSaveStatus] = useState({});
             const [activeSection, setActiveSection] = useState('ai'); // 'ai' or 'typing'
 
+            // Voice customization state
+            const [customVoices, setCustomVoices] = useState([]);
+            const [showVoiceModal, setShowVoiceModal] = useState(false);
+            const [voiceLoading, setVoiceLoading] = useState(false);
+            const [voiceError, setVoiceError] = useState('');
+
             const [formData, setFormData] = useState({
                 default_provider: 'claude',
                 claude_model: 'claude-haiku-4-5-20251001',
@@ -3752,11 +3782,20 @@
                 gemini_validated: false,
                 openai_model: 'gpt-4o-mini',
                 openai_api_key: '',
-                openai_validated: false
+                openai_validated: false,
+                alicloud_model: 'qwen-turbo',
+                alicloud_api_key: '',
+                alicloud_validated: false,
+                tts_provider: 'edge',
+                tts_voice: 'Cherry'
             });
 
             useEffect(() => {
                 api.get('/ai/settings').then(data => {
+                    // Load alicloud settings from localStorage (fallback since DB column may not exist)
+                    const localAlicloud = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                    const localTts = JSON.parse(localStorage.getItem('tts_settings') || '{}');
+
                     if (data?.settings) {
                         setSettings(data.settings);
                         setFormData({
@@ -3769,7 +3808,14 @@
                             gemini_validated: data.settings.gemini_validated || false,
                             openai_model: data.settings.openai_model || 'gpt-4o-mini',
                             openai_api_key: data.settings.openai_api_key || '',
-                            openai_validated: data.settings.openai_validated || false
+                            openai_validated: data.settings.openai_validated || false,
+                            // Use localStorage fallback for alicloud (Supabase column may not exist)
+                            alicloud_model: data.settings.alicloud_model || localAlicloud.model || 'qwen-turbo',
+                            alicloud_api_key: data.settings.alicloud_api_key || localAlicloud.api_key || '',
+                            alicloud_validated: data.settings.alicloud_validated || localAlicloud.validated || false,
+                            // Use localStorage fallback for TTS settings
+                            tts_provider: data.settings.tts_provider || localTts.provider || 'edge',
+                            tts_voice: data.settings.tts_voice || localTts.voice || 'Cherry'
                         });
                     }
                     if (data?.models) setModels(data.models);
@@ -3780,13 +3826,68 @@
             const autoSave = async (field, value) => {
                 setSaveStatus(prev => ({ ...prev, [field]: 'saving' }));
                 await api.put('/ai/settings', { [field]: value });
+                // Also save alicloud and TTS settings to localStorage (fallback)
+                if (field.startsWith('alicloud_')) {
+                    const local = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                    local[field.replace('alicloud_', '')] = value;
+                    // Also save raw_key when saving api_key (needed for TTS)
+                    if (field === 'alicloud_api_key' && value && !value.startsWith('•')) {
+                        local.raw_key = value;
+                    }
+                    localStorage.setItem('alicloud_settings', JSON.stringify(local));
+                }
+                if (field.startsWith('tts_')) {
+                    const local = JSON.parse(localStorage.getItem('tts_settings') || '{}');
+                    local[field.replace('tts_', '')] = value;
+                    localStorage.setItem('tts_settings', JSON.stringify(local));
+                }
                 setSaveStatus(prev => ({ ...prev, [field]: 'saved' }));
                 setTimeout(() => setSaveStatus(prev => ({ ...prev, [field]: null })), 2000);
             };
 
+            // Load custom voices when AliCloud is validated
+            const loadCustomVoices = async () => {
+                // First load from localStorage (for immediate display)
+                const localVoices = JSON.parse(localStorage.getItem('qwen_custom_voices') || '[]');
+                if (localVoices.length > 0) {
+                    setCustomVoices(localVoices);
+                }
+
+                // Then try to fetch from API to sync with server
+                const alicloudSettings = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                if (!alicloudSettings.raw_key) return;
+
+                try {
+                    const response = await fetch(`/api/tts/voices?api_key=${encodeURIComponent(alicloudSettings.raw_key)}`);
+                    const data = await response.json();
+                    if (data.voices) {
+                        const apiCustomVoices = data.voices.filter(v => !v.is_preset);
+                        // Merge with local voices (API is source of truth for what exists on server)
+                        if (apiCustomVoices.length > 0) {
+                            setCustomVoices(apiCustomVoices);
+                            localStorage.setItem('qwen_custom_voices', JSON.stringify(apiCustomVoices));
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to load custom voices from API:', e);
+                    // Keep using localStorage voices
+                }
+            };
+
+            // Load custom voices when component mounts or alicloud is validated
+            useEffect(() => {
+                loadCustomVoices();
+            }, [formData.alicloud_validated]);
+
             const handleModelChange = async (provider, modelId) => {
                 setFormData(prev => ({ ...prev, [`${provider}_model`]: modelId }));
                 await autoSave(`${provider}_model`, modelId);
+                // Also save alicloud model to localStorage (fallback)
+                if (provider === 'alicloud') {
+                    const local = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                    local.model = modelId;
+                    localStorage.setItem('alicloud_settings', JSON.stringify(local));
+                }
             };
 
             const handleSetDefault = async (provider) => {
@@ -3809,11 +3910,21 @@
                 const result = await api.post('/ai/validate-key', { provider, api_key: apiKey });
 
                 if (result?.valid) {
+                    const maskedKey = '•'.repeat(20) + apiKey.slice(-4);
                     setFormData(prev => ({
                         ...prev,
                         [`${provider}_validated`]: true,
-                        [`${provider}_api_key`]: '•'.repeat(20) + apiKey.slice(-4)
+                        [`${provider}_api_key`]: maskedKey
                     }));
+                    // Save alicloud settings to localStorage (fallback since Supabase column may not exist)
+                    if (provider === 'alicloud') {
+                        localStorage.setItem('alicloud_settings', JSON.stringify({
+                            api_key: maskedKey,
+                            validated: true,
+                            model: formData.alicloud_model || 'qwen-turbo',
+                            raw_key: apiKey  // Store raw key for API calls
+                        }));
+                    }
                     if (result.models) {
                         console.log(`[AI Settings] ${provider} models received:`, result.models.length, 'models');
                         console.log(`[AI Settings] ${provider} model list:`, result.models.map(m => m.id).join(', '));
@@ -3833,6 +3944,14 @@
                     [`${provider}_api_key`]: value,
                     [`${provider}_validated`]: value.startsWith('•') ? prev[`${provider}_validated`] : false
                 }));
+
+                // Save raw key to localStorage immediately for AliCloud (needed for TTS)
+                if (provider === 'alicloud' && value && !value.startsWith('•')) {
+                    const local = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                    local.raw_key = value;
+                    local.api_key = value;
+                    localStorage.setItem('alicloud_settings', JSON.stringify(local));
+                }
             };
 
             const [reloading, setReloading] = useState({});
@@ -3860,7 +3979,8 @@
             const providers = [
                 { id: 'claude', name: 'Claude', company: 'Anthropic', icon: '🔮', color: 'purple', url: 'https://console.anthropic.com' },
                 { id: 'gemini', name: 'Gemini', company: 'Google', icon: '💎', color: 'blue', url: 'https://aistudio.google.com/apikey' },
-                { id: 'openai', name: 'OpenAI', company: 'OpenAI', icon: '🤖', color: 'green', url: 'https://platform.openai.com/api-keys' }
+                { id: 'openai', name: 'OpenAI', company: 'OpenAI', icon: '🤖', color: 'green', url: 'https://platform.openai.com/api-keys' },
+                { id: 'alicloud', name: 'Qwen', company: 'AliCloud', icon: '☁️', color: 'orange', url: 'https://bailian.console.alibabacloud.com/' }
             ];
 
             return (
@@ -4008,6 +4128,7 @@
                                     <li>• The <b>default provider</b> will be used for AI marking and question generation</li>
                                     <li>• <b>Claude Haiku</b> is recommended for fast, cost-effective responses</li>
                                     <li>• <b>Gemini Flash</b> is a good free alternative</li>
+                                    <li>• <b>Qwen (AliCloud)</b> enables Qwen3-TTS for text-to-speech</li>
                                     <li>• Settings are auto-saved when you change the model or default provider</li>
                                 </ul>
                             </div>
@@ -4117,6 +4238,128 @@
                                         }`} />
                                     </button>
                                 </div>
+
+                                {/* TTS Provider Selection */}
+                                {typingSettings.ttsEnabled && (
+                                    <div className="p-4 rounded-lg" style={{ background: 'var(--color-bg-alt)' }}>
+                                        <div className="font-medium mb-3" style={{ color: 'var(--color-text)' }}>TTS Provider</div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button
+                                                onClick={() => {
+                                                    onTypingSettingsChange({ ...typingSettings, ttsProvider: 'edge' });
+                                                    setFormData(prev => ({ ...prev, tts_provider: 'edge' }));
+                                                    autoSave('tts_provider', 'edge');
+                                                }}
+                                                className="p-3 rounded-lg border-2 transition text-left"
+                                                style={{
+                                                    background: 'var(--color-surface)',
+                                                    borderColor: (formData.tts_provider || 'edge') === 'edge' ? 'var(--color-success)' : 'var(--color-border)',
+                                                    color: 'var(--color-text)'
+                                                }}
+                                            >
+                                                <div className="font-medium">🎤 Edge TTS</div>
+                                                <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Microsoft Emma voice (Free)</div>
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const hasAlicloudKey = formData.alicloud_validated || (formData.alicloud_api_key && formData.alicloud_api_key.length > 4);
+                                                    if (!hasAlicloudKey) {
+                                                        alert('Please add and validate your AliCloud API key in AI Providers first');
+                                                        return;
+                                                    }
+                                                    onTypingSettingsChange({ ...typingSettings, ttsProvider: 'qwen' });
+                                                    setFormData(prev => ({ ...prev, tts_provider: 'qwen' }));
+                                                    autoSave('tts_provider', 'qwen');
+                                                }}
+                                                className="p-3 rounded-lg border-2 transition text-left"
+                                                style={{
+                                                    background: (formData.alicloud_validated || (formData.alicloud_api_key && formData.alicloud_api_key.length > 4)) ? 'var(--color-surface)' : 'var(--color-bg-alt)',
+                                                    borderColor: (formData.tts_provider) === 'qwen' ? 'var(--color-success)' : 'var(--color-border)',
+                                                    color: (formData.alicloud_validated || (formData.alicloud_api_key && formData.alicloud_api_key.length > 4)) ? 'var(--color-text)' : 'var(--color-text-muted)',
+                                                    opacity: (formData.alicloud_validated || (formData.alicloud_api_key && formData.alicloud_api_key.length > 4)) ? 1 : 0.7
+                                                }}
+                                            >
+                                                <div className="font-medium">☁️ Qwen TTS</div>
+                                                <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                                    {(formData.alicloud_validated || (formData.alicloud_api_key && formData.alicloud_api_key.length > 4)) ? 'AliCloud Qwen3-TTS' : 'Requires AliCloud API key'}
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        {/* Voice Selection for Qwen */}
+                                        {formData.tts_provider === 'qwen' && (formData.alicloud_validated || (formData.alicloud_api_key && formData.alicloud_api_key.length > 4)) && (
+                                            <div className="mt-3">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <label className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>Voice</label>
+                                                    <button
+                                                        onClick={() => setShowVoiceModal(true)}
+                                                        className="text-xs px-2 py-1 rounded hover:opacity-80"
+                                                        style={{ background: 'var(--color-primary)', color: 'white' }}
+                                                    >
+                                                        + Create Custom Voice
+                                                    </button>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <select
+                                                        value={formData.tts_voice || 'Cherry'}
+                                                        onChange={(e) => {
+                                                            const selectedVoice = e.target.value;
+                                                            setFormData(prev => ({ ...prev, tts_voice: selectedVoice }));
+                                                            autoSave('tts_voice', selectedVoice);
+
+                                                            // Find voice_type for custom voices
+                                                            const customVoice = customVoices.find(v => v.voice_id === selectedVoice);
+                                                            const voiceType = customVoice ? customVoice.voice_type : 'preset';
+
+                                                            // Save voice_type to tts_settings
+                                                            const ttsSettings = JSON.parse(localStorage.getItem('tts_settings') || '{}');
+                                                            ttsSettings.voice = selectedVoice;
+                                                            ttsSettings.voice_type = voiceType;
+                                                            localStorage.setItem('tts_settings', JSON.stringify(ttsSettings));
+
+                                                            // Update typing settings too
+                                                            onTypingSettingsChange({ ...typingSettings, ttsVoice: selectedVoice, ttsVoiceType: voiceType });
+                                                        }}
+                                                        className="flex-1 p-2 border rounded-lg"
+                                                        style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+                                                    >
+                                                        <optgroup label="Preset Voices">
+                                                            <option value="Cherry">Cherry (Female, Friendly)</option>
+                                                            <option value="Ethan">Ethan (Male, Standard)</option>
+                                                            <option value="Serena">Serena (Female, Professional)</option>
+                                                            <option value="Chelsie">Chelsie (Female, Warm)</option>
+                                                        </optgroup>
+                                                        {customVoices.length > 0 && (
+                                                            <optgroup label="Custom Voices">
+                                                                {customVoices.map(v => (
+                                                                    <option key={v.voice_id} value={v.voice_id}>
+                                                                        {v.name} ({v.voice_type === 'cloned' ? 'Cloned' : 'Designed'})
+                                                                    </option>
+                                                                ))}
+                                                            </optgroup>
+                                                        )}
+                                                    </select>
+                                                    <button
+                                                        onClick={() => {
+                                                            const previewText = "Hello! This is a preview of the selected voice.";
+                                                            audioEngine.speak(previewText, 'qwen', formData.tts_voice || 'Cherry');
+                                                        }}
+                                                        className="px-3 py-2 rounded-lg hover:opacity-80 transition-all"
+                                                        style={{ background: 'var(--color-primary)', color: 'white' }}
+                                                        title="Preview voice"
+                                                    >
+                                                        🔊
+                                                    </button>
+                                                </div>
+                                                {customVoices.length > 0 && (
+                                                    <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                                        {customVoices.length} custom voice{customVoices.length !== 1 ? 's' : ''} available
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             <div className="mt-6 p-4 rounded-lg" style={{ background: 'rgba(45, 106, 79, 0.1)' }}>
@@ -4131,6 +4374,367 @@
                             </div>
                         </div>
                     )}
+
+                    {/* Voice Creation Modal */}
+                    {showVoiceModal && (
+                        <VoiceCreationModal
+                            onClose={() => {
+                                setShowVoiceModal(false);
+                                setVoiceError('');
+                            }}
+                            onVoiceCreated={(voice) => {
+                                // Add to state
+                                setCustomVoices(prev => {
+                                    const updated = [...prev, voice];
+                                    // Save to localStorage for persistence
+                                    localStorage.setItem('qwen_custom_voices', JSON.stringify(updated));
+                                    return updated;
+                                });
+                                setShowVoiceModal(false);
+                                setVoiceError('');
+                            }}
+                            voiceLoading={voiceLoading}
+                            setVoiceLoading={setVoiceLoading}
+                            voiceError={voiceError}
+                            setVoiceError={setVoiceError}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        // Voice Creation Modal Component
+        function VoiceCreationModal({ onClose, onVoiceCreated, voiceLoading, setVoiceLoading, voiceError, setVoiceError }) {
+            const { theme } = useContext(ThemeContext);
+            const [activeTab, setActiveTab] = useState('design'); // 'design' or 'clone'
+            const [voiceName, setVoiceName] = useState('');
+            const [voiceDescription, setVoiceDescription] = useState('');
+            const [previewText, setPreviewText] = useState('Hello, this is a preview of my new custom voice.');
+            const [language, setLanguage] = useState('en');
+            const [audioFile, setAudioFile] = useState(null);
+            const [isRecording, setIsRecording] = useState(false);
+            const [recordedAudio, setRecordedAudio] = useState(null);
+            const [previewAudio, setPreviewAudio] = useState(null);
+            const mediaRecorderRef = useRef(null);
+            const audioChunksRef = useRef([]);
+
+            const handleDesignVoice = async () => {
+                if (!voiceDescription.trim()) {
+                    setVoiceError('Please describe the voice characteristics');
+                    return;
+                }
+                if (!voiceName.trim()) {
+                    setVoiceError('Please enter a voice name');
+                    return;
+                }
+
+                const alicloudSettings = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                if (!alicloudSettings.raw_key) {
+                    setVoiceError('AliCloud API key not found');
+                    return;
+                }
+
+                setVoiceLoading(true);
+                setVoiceError('');
+
+                try {
+                    const response = await fetch('/api/tts/design-voice', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            voice_prompt: voiceDescription,
+                            preferred_name: voiceName.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 16),
+                            language: language,
+                            preview_text: previewText,
+                            api_key: alicloudSettings.raw_key
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.error) {
+                        setVoiceError(data.error);
+                    } else {
+                        // Play preview audio if available
+                        if (data.preview_audio) {
+                            const audio = new Audio(`data:audio/mp3;base64,${data.preview_audio}`);
+                            audio.play();
+                            setPreviewAudio(data.preview_audio);
+                        }
+                        onVoiceCreated({
+                            voice_id: data.voice_id,
+                            name: voiceName,
+                            voice_type: 'designed',
+                            is_preset: false
+                        });
+                    }
+                } catch (e) {
+                    setVoiceError('Failed to create voice: ' + e.message);
+                } finally {
+                    setVoiceLoading(false);
+                }
+            };
+
+            const handleCloneVoice = async () => {
+                if (!voiceName.trim()) {
+                    setVoiceError('Please enter a voice name');
+                    return;
+                }
+
+                const audioData = recordedAudio || audioFile;
+                if (!audioData) {
+                    setVoiceError('Please record or upload audio');
+                    return;
+                }
+
+                const alicloudSettings = JSON.parse(localStorage.getItem('alicloud_settings') || '{}');
+                if (!alicloudSettings.raw_key) {
+                    setVoiceError('AliCloud API key not found');
+                    return;
+                }
+
+                setVoiceLoading(true);
+                setVoiceError('');
+
+                try {
+                    // Convert audio to base64
+                    let audioBase64, audioFormat;
+                    if (recordedAudio) {
+                        audioBase64 = recordedAudio.split(',')[1];
+                        audioFormat = 'wav';
+                    } else if (audioFile) {
+                        const reader = new FileReader();
+                        const base64Promise = new Promise((resolve) => {
+                            reader.onload = () => resolve(reader.result.split(',')[1]);
+                            reader.readAsDataURL(audioFile);
+                        });
+                        audioBase64 = await base64Promise;
+                        audioFormat = audioFile.name.split('.').pop().toLowerCase();
+                    }
+
+                    const response = await fetch('/api/tts/clone-voice', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            audio_base64: audioBase64,
+                            audio_format: audioFormat,
+                            preferred_name: voiceName.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 16),
+                            language: language,
+                            api_key: alicloudSettings.raw_key
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.error) {
+                        setVoiceError(data.error);
+                    } else {
+                        onVoiceCreated({
+                            voice_id: data.voice_id,
+                            name: voiceName,
+                            voice_type: 'cloned',
+                            is_preset: false
+                        });
+                    }
+                } catch (e) {
+                    setVoiceError('Failed to clone voice: ' + e.message);
+                } finally {
+                    setVoiceLoading(false);
+                }
+            };
+
+            const startRecording = async () => {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorderRef.current = mediaRecorder;
+                    audioChunksRef.current = [];
+
+                    mediaRecorder.ondataavailable = (e) => {
+                        audioChunksRef.current.push(e.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+                        const reader = new FileReader();
+                        reader.onload = () => setRecordedAudio(reader.result);
+                        reader.readAsDataURL(audioBlob);
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    mediaRecorder.start();
+                    setIsRecording(true);
+                } catch (e) {
+                    setVoiceError('Microphone access denied');
+                }
+            };
+
+            const stopRecording = () => {
+                if (mediaRecorderRef.current && isRecording) {
+                    mediaRecorderRef.current.stop();
+                    setIsRecording(false);
+                }
+            };
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                    <div className="w-full max-w-lg mx-4 p-6 rounded-xl shadow-2xl" style={{ background: 'var(--color-bg-secondary)', maxHeight: '90vh', overflowY: 'auto' }}>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-bold" style={{ color: 'var(--color-text)' }}>Create Custom Voice</h3>
+                            <button onClick={onClose} className="text-2xl hover:opacity-70" style={{ color: 'var(--color-text-muted)' }}>&times;</button>
+                        </div>
+
+                        {/* Tabs */}
+                        <div className="flex gap-2 mb-4">
+                            <button
+                                onClick={() => setActiveTab('design')}
+                                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${activeTab === 'design' ? '' : 'opacity-60 hover:opacity-80'}`}
+                                style={{ background: activeTab === 'design' ? 'var(--color-primary)' : 'var(--color-bg)', color: activeTab === 'design' ? 'white' : 'var(--color-text)' }}
+                            >
+                                Design Voice
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('clone')}
+                                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${activeTab === 'clone' ? '' : 'opacity-60 hover:opacity-80'}`}
+                                style={{ background: activeTab === 'clone' ? 'var(--color-primary)' : 'var(--color-bg)', color: activeTab === 'clone' ? 'white' : 'var(--color-text)' }}
+                            >
+                                Clone Voice
+                            </button>
+                        </div>
+
+                        {/* Voice Name (common) */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Voice Name</label>
+                            <input
+                                type="text"
+                                value={voiceName}
+                                onChange={(e) => setVoiceName(e.target.value)}
+                                placeholder="e.g., my_teacher_voice"
+                                maxLength={16}
+                                className="w-full p-2 border rounded-lg"
+                                style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+                            />
+                            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Letters, numbers, underscore only. Max 16 chars.</p>
+                        </div>
+
+                        {/* Language */}
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Language</label>
+                            <select
+                                value={language}
+                                onChange={(e) => setLanguage(e.target.value)}
+                                className="w-full p-2 border rounded-lg"
+                                style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+                            >
+                                <option value="en">English</option>
+                                <option value="zh">Chinese</option>
+                                <option value="ja">Japanese</option>
+                                <option value="ko">Korean</option>
+                            </select>
+                        </div>
+
+                        {/* Design Voice Tab */}
+                        {activeTab === 'design' && (
+                            <>
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Voice Description</label>
+                                    <textarea
+                                        value={voiceDescription}
+                                        onChange={(e) => setVoiceDescription(e.target.value)}
+                                        placeholder="Describe the voice characteristics, e.g.: A warm, friendly female voice with a British accent, speaking at a moderate pace with clear enunciation."
+                                        rows={3}
+                                        className="w-full p-2 border rounded-lg resize-none"
+                                        style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+                                    />
+                                </div>
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-text)' }}>Preview Text</label>
+                                    <input
+                                        type="text"
+                                        value={previewText}
+                                        onChange={(e) => setPreviewText(e.target.value)}
+                                        className="w-full p-2 border rounded-lg"
+                                        style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+                                    />
+                                </div>
+                            </>
+                        )}
+
+                        {/* Clone Voice Tab */}
+                        {activeTab === 'clone' && (
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text)' }}>Audio Sample</label>
+                                <p className="text-xs mb-3" style={{ color: 'var(--color-text-muted)' }}>
+                                    Record 10-30 seconds of clear speech, or upload an audio file (MP3, WAV, M4A).
+                                </p>
+
+                                {/* Record Button */}
+                                <div className="flex gap-2 mb-3">
+                                    {!isRecording ? (
+                                        <button
+                                            onClick={startRecording}
+                                            className="flex-1 py-2 px-4 rounded-lg font-medium"
+                                            style={{ background: 'var(--color-error)', color: 'white' }}
+                                        >
+                                            🎤 Start Recording
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={stopRecording}
+                                            className="flex-1 py-2 px-4 rounded-lg font-medium animate-pulse"
+                                            style={{ background: 'var(--color-error)', color: 'white' }}
+                                        >
+                                            ⏹ Stop Recording
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Or Upload */}
+                                <div className="text-center mb-2" style={{ color: 'var(--color-text-muted)' }}>or</div>
+                                <input
+                                    type="file"
+                                    accept="audio/*"
+                                    onChange={(e) => setAudioFile(e.target.files[0])}
+                                    className="w-full p-2 border rounded-lg"
+                                    style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+                                />
+
+                                {/* Show recorded/uploaded status */}
+                                {recordedAudio && (
+                                    <div className="mt-2 p-2 rounded" style={{ background: 'rgba(45, 106, 79, 0.1)' }}>
+                                        <span style={{ color: 'var(--color-success)' }}>✓ Audio recorded</span>
+                                        <audio src={recordedAudio} controls className="w-full mt-2" />
+                                    </div>
+                                )}
+                                {audioFile && !recordedAudio && (
+                                    <div className="mt-2 p-2 rounded" style={{ background: 'rgba(45, 106, 79, 0.1)' }}>
+                                        <span style={{ color: 'var(--color-success)' }}>✓ {audioFile.name}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Error */}
+                        {voiceError && (
+                            <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(220, 38, 38, 0.1)' }}>
+                                <span style={{ color: 'var(--color-error)' }}>{voiceError}</span>
+                            </div>
+                        )}
+
+                        {/* Submit Button */}
+                        <button
+                            onClick={activeTab === 'design' ? handleDesignVoice : handleCloneVoice}
+                            disabled={voiceLoading}
+                            className="w-full py-3 rounded-lg font-bold text-white transition-all hover:opacity-90 disabled:opacity-50"
+                            style={{ background: 'var(--color-primary)' }}
+                        >
+                            {voiceLoading ? 'Creating Voice...' : activeTab === 'design' ? 'Create Designed Voice' : 'Clone Voice'}
+                        </button>
+
+                        <p className="mt-3 text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+                            Custom voices are stored in your AliCloud account and can be used for TTS.
+                        </p>
+                    </div>
                 </div>
             );
         }
@@ -4763,13 +5367,16 @@
             // Typing settings state
             const [typingSettings, setTypingSettings] = useState(() => {
                 const saved = localStorage.getItem('typingSettings');
-                return saved ? JSON.parse(saved) : {
+                const defaults = {
                     enabled: true,
                     memoryDuration: 5,
                     stuckTimeout: 2,
                     soundEnabled: true,
-                    ttsEnabled: true
+                    ttsEnabled: true,
+                    ttsProvider: 'edge',
+                    ttsVoice: 'Cherry'
                 };
+                return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
             });
 
             // Save typing settings to localStorage
