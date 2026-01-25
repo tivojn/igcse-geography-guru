@@ -3776,18 +3776,23 @@
             const [voiceLoading, setVoiceLoading] = useState(false);
             const [voiceError, setVoiceError] = useState('');
 
+            // New state for improved UX (from English project patterns)
+            const [showKeys, setShowKeys] = useState({ claude: false, gemini: false, openai: false, alicloud: false });
+            const [testStatus, setTestStatus] = useState({ claude: 'idle', gemini: 'idle', openai: 'idle', alicloud: 'idle' });
+            const [testMessages, setTestMessages] = useState({ claude: '', gemini: '', openai: '', alicloud: '' });
+
             const [formData, setFormData] = useState({
                 default_provider: 'claude',
                 claude_model: 'claude-haiku-4-5-20251001',
                 claude_api_key: '',
                 claude_validated: false,
-                gemini_model: 'gemini-2.0-flash',
+                gemini_model: 'gemini-2.5-flash',
                 gemini_api_key: '',
                 gemini_validated: false,
                 openai_model: 'gpt-4o-mini',
                 openai_api_key: '',
                 openai_validated: false,
-                alicloud_model: 'qwen-turbo',
+                alicloud_model: 'qwen-flash',
                 alicloud_api_key: '',
                 alicloud_validated: false,
                 tts_provider: 'edge',
@@ -3814,7 +3819,7 @@
                             openai_api_key: data.settings.openai_api_key || '',
                             openai_validated: data.settings.openai_validated || false,
                             // Use localStorage fallback for alicloud (Supabase column may not exist)
-                            alicloud_model: data.settings.alicloud_model || localAlicloud.model || 'qwen-turbo',
+                            alicloud_model: data.settings.alicloud_model || localAlicloud.model || 'qwen-flash',
                             alicloud_api_key: data.settings.alicloud_api_key || localAlicloud.api_key || '',
                             alicloud_validated: data.settings.alicloud_validated || localAlicloud.validated || false,
                             // Use localStorage fallback for TTS settings
@@ -3828,6 +3833,13 @@
             }, []);
 
             const autoSave = async (field, value) => {
+                // IMPORTANT: Never save masked API keys (they start with •)
+                // The real key is saved by the validate-key endpoint
+                if (field.endsWith('_api_key') && value && value.startsWith('•')) {
+                    console.log(`[autoSave] Skipping masked key for ${field}`);
+                    return;
+                }
+
                 setSaveStatus(prev => ({ ...prev, [field]: 'saving' }));
                 await api.put('/ai/settings', { [field]: value });
                 // Also save alicloud and TTS settings to localStorage (fallback)
@@ -3901,42 +3913,55 @@
 
             const handleValidate = async (provider) => {
                 setValidating(prev => ({ ...prev, [provider]: true }));
+                setTestStatus(prev => ({ ...prev, [provider]: 'testing' }));
+                setTestMessages(prev => ({ ...prev, [provider]: '' }));
 
                 const keyField = `${provider}_api_key`;
                 const apiKey = formData[keyField];
 
                 if (!apiKey || apiKey.startsWith('•')) {
-                    alert('Please enter an API key first');
+                    setTestStatus(prev => ({ ...prev, [provider]: 'error' }));
+                    setTestMessages(prev => ({ ...prev, [provider]: 'Please enter an API key first' }));
                     setValidating(prev => ({ ...prev, [provider]: false }));
                     return;
                 }
 
-                const result = await api.post('/ai/validate-key', { provider, api_key: apiKey });
+                try {
+                    const result = await api.post('/ai/validate-key', { provider, api_key: apiKey });
 
-                if (result?.valid) {
-                    const maskedKey = '•'.repeat(20) + apiKey.slice(-4);
-                    setFormData(prev => ({
-                        ...prev,
-                        [`${provider}_validated`]: true,
-                        [`${provider}_api_key`]: maskedKey
-                    }));
-                    // Save alicloud settings to localStorage (fallback since Supabase column may not exist)
-                    if (provider === 'alicloud') {
-                        localStorage.setItem('alicloud_settings', JSON.stringify({
-                            api_key: maskedKey,
-                            validated: true,
-                            model: formData.alicloud_model || 'qwen-turbo',
-                            raw_key: apiKey  // Store raw key for API calls
+                    if (result?.valid) {
+                        const maskedKey = '•'.repeat(20) + apiKey.slice(-4);
+                        setFormData(prev => ({
+                            ...prev,
+                            [`${provider}_validated`]: true,
+                            [`${provider}_api_key`]: maskedKey
                         }));
+                        // Save alicloud settings to localStorage (fallback since Supabase column may not exist)
+                        if (provider === 'alicloud') {
+                            localStorage.setItem('alicloud_settings', JSON.stringify({
+                                api_key: maskedKey,
+                                validated: true,
+                                model: formData.alicloud_model || 'qwen-flash',
+                                raw_key: apiKey  // Store raw key for API calls
+                            }));
+                        }
+                        if (result.models) {
+                            console.log(`[AI Settings] ${provider} models received:`, result.models.length, 'models');
+                            console.log(`[AI Settings] ${provider} model list:`, result.models.map(m => m.id).join(', '));
+                            setModels(prev => ({ ...prev, [provider]: result.models }));
+                        }
+                        setTestStatus(prev => ({ ...prev, [provider]: 'success' }));
+                        const modelCount = result.models?.length || 0;
+                        setTestMessages(prev => ({ ...prev, [provider]: `Connected! ${modelCount} models available` }));
+                        // Fetch models after successful validation
+                        handleReloadModels(provider);
+                    } else {
+                        setTestStatus(prev => ({ ...prev, [provider]: 'error' }));
+                        setTestMessages(prev => ({ ...prev, [provider]: result?.error || 'Invalid API key' }));
                     }
-                    if (result.models) {
-                        console.log(`[AI Settings] ${provider} models received:`, result.models.length, 'models');
-                        console.log(`[AI Settings] ${provider} model list:`, result.models.map(m => m.id).join(', '));
-                        setModels(prev => ({ ...prev, [provider]: result.models }));
-                    }
-                    alert(`✅ ${provider.charAt(0).toUpperCase() + provider.slice(1)} API key validated and saved!`);
-                } else {
-                    alert(`❌ Invalid API key: ${result?.error || 'Unknown error'}`);
+                } catch (err) {
+                    setTestStatus(prev => ({ ...prev, [provider]: 'error' }));
+                    setTestMessages(prev => ({ ...prev, [provider]: 'Connection failed: ' + err.message }));
                 }
 
                 setValidating(prev => ({ ...prev, [provider]: false }));
@@ -3948,6 +3973,12 @@
                     [`${provider}_api_key`]: value,
                     [`${provider}_validated`]: value.startsWith('•') ? prev[`${provider}_validated`] : false
                 }));
+
+                // Reset test status when key changes (unless it's masked)
+                if (!value.startsWith('•')) {
+                    setTestStatus(prev => ({ ...prev, [provider]: 'idle' }));
+                    setTestMessages(prev => ({ ...prev, [provider]: '' }));
+                }
 
                 // Save raw key to localStorage immediately for AliCloud (needed for TTS)
                 if (provider === 'alicloud' && value && !value.startsWith('•')) {
@@ -3963,19 +3994,28 @@
             const handleReloadModels = async (provider) => {
                 setReloading(prev => ({ ...prev, [provider]: true }));
                 try {
-                    // Call the dynamic models endpoint
+                    // Call the dynamic models endpoint with timeout
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
                     const data = await api.get(`/ai/models/${provider}`);
+                    clearTimeout(timeoutId);
+
                     console.log(`[AI Settings] Reload ${provider} models response:`, data);
                     if (data?.models?.length > 0) {
                         console.log(`[AI Settings] Reload ${provider} - ${data.models.length} models:`, data.models.map(m => m.id).join(', '));
                         setModels(prev => ({ ...prev, [provider]: data.models }));
+                        setTestMessages(prev => ({ ...prev, [provider]: `${data.models.length} models loaded` }));
                     } else {
                         console.log(`[AI Settings] Reload ${provider} - no models returned, keeping current list`);
                     }
                 } catch (err) {
                     console.error('[AI Settings] Failed to reload models:', err);
+                    setTestMessages(prev => ({ ...prev, [provider]: 'Failed to load models' }));
+                } finally {
+                    // Always reset reloading state
+                    setReloading(prev => ({ ...prev, [provider]: false }));
                 }
-                setReloading(prev => ({ ...prev, [provider]: false }));
             };
 
             if (loading) return <div className="text-center py-8">Loading settings...</div>;
@@ -4057,26 +4097,53 @@
                                             <div>
                                                 <label className="block font-medium mb-2" style={{ color: 'var(--color-text)' }}>API Key</label>
                                                 <div className="flex space-x-2">
-                                                    <input
-                                                        type="password"
-                                                        value={formData[`${provider.id}_api_key`]}
-                                                        onChange={(e) => handleKeyChange(provider.id, e.target.value)}
-                                                        placeholder={`Enter ${provider.name} API key`}
-                                                        className="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                                        style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
-                                                    />
+                                                    <div className="relative flex-1">
+                                                        <input
+                                                            type={showKeys[provider.id] ? 'text' : 'password'}
+                                                            value={formData[`${provider.id}_api_key`]}
+                                                            onChange={(e) => handleKeyChange(provider.id, e.target.value)}
+                                                            onFocus={() => {
+                                                                if (formData[`${provider.id}_api_key`]?.startsWith('•')) {
+                                                                    setFormData(prev => ({ ...prev, [`${provider.id}_api_key`]: '' }));
+                                                                }
+                                                            }}
+                                                            placeholder={`Enter ${provider.name} API key`}
+                                                            className="w-full p-3 pr-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                            style={{ background: 'var(--color-bg)', color: 'var(--color-text)', borderColor: 'var(--color-border)' }}
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowKeys(prev => ({ ...prev, [provider.id]: !prev[provider.id] }))}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 opacity-60 hover:opacity-100"
+                                                            style={{ color: 'var(--color-text-muted)' }}
+                                                            title={showKeys[provider.id] ? 'Hide key' : 'Show key'}
+                                                        >
+                                                            {showKeys[provider.id] ? '🙈' : '👁️'}
+                                                        </button>
+                                                    </div>
                                                     <button
                                                         onClick={() => handleValidate(provider.id)}
                                                         disabled={validating[provider.id]}
-                                                        className="px-4 py-2 rounded-lg font-medium transition disabled:opacity-50"
+                                                        className="px-4 py-2 rounded-lg font-medium transition disabled:opacity-50 min-w-[90px]"
                                                         style={{
                                                             background: isValidated ? 'rgba(45, 106, 79, 0.15)' : 'var(--color-primary)',
                                                             color: isValidated ? 'var(--color-success)' : '#FFFFFF'
                                                         }}
                                                     >
-                                                        {validating[provider.id] ? '...' : isValidated ? 'Re-validate' : 'Validate'}
+                                                        {validating[provider.id] ? (
+                                                            <span className="animate-pulse">Testing...</span>
+                                                        ) : isValidated ? 'Re-test' : 'Test'}
                                                     </button>
                                                 </div>
+                                                {/* Inline validation status message */}
+                                                {testMessages[provider.id] && (
+                                                    <div className="flex items-center gap-2 text-sm mt-2" style={{
+                                                        color: testStatus[provider.id] === 'success' ? 'var(--color-success)' : '#ef4444'
+                                                    }}>
+                                                        {testStatus[provider.id] === 'success' ? '✓' : '✕'}
+                                                        {testMessages[provider.id]}
+                                                    </div>
+                                                )}
                                                 <a href={provider.url} target="_blank" rel="noopener" className="text-xs hover:underline mt-1 inline-block" style={{ color: 'var(--color-accent)' }}>
                                                     Get API key →
                                                 </a>
@@ -4126,13 +4193,58 @@
                                 );
                             })}
 
+                            {/* Provider Comparison */}
+                            <div className="rounded-xl shadow-lg p-6" style={{ background: 'var(--color-surface)' }}>
+                                <h4 className="font-semibold mb-4" style={{ color: 'var(--color-text)' }}>📊 Provider Comparison</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                                    <div className="p-3 rounded-lg" style={{ background: 'rgba(168, 85, 247, 0.1)' }}>
+                                        <h5 className="font-medium mb-2" style={{ color: '#9333ea' }}>🔮 Claude</h5>
+                                        <ul className="space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
+                                            <li>✓ Nuanced analysis</li>
+                                            <li>✓ Long context window</li>
+                                            <li>✓ Thoughtful responses</li>
+                                            <li>✓ Great for writing</li>
+                                        </ul>
+                                    </div>
+                                    <div className="p-3 rounded-lg" style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
+                                        <h5 className="font-medium mb-2" style={{ color: '#2563eb' }}>💎 Gemini</h5>
+                                        <ul className="space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
+                                            <li>✓ Generous free tier</li>
+                                            <li>✓ Fast responses</li>
+                                            <li>✓ Good for general tasks</li>
+                                            <li>✓ Multi-modal support</li>
+                                        </ul>
+                                    </div>
+                                    <div className="p-3 rounded-lg" style={{ background: 'rgba(34, 197, 94, 0.1)' }}>
+                                        <h5 className="font-medium mb-2" style={{ color: '#16a34a' }}>🤖 OpenAI</h5>
+                                        <ul className="space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
+                                            <li>✓ Excellent reasoning</li>
+                                            <li>✓ Wide model selection</li>
+                                            <li>✓ Industry standard</li>
+                                            <li>✓ Strong coding ability</li>
+                                        </ul>
+                                    </div>
+                                    <div className="p-3 rounded-lg" style={{ background: 'rgba(249, 115, 22, 0.1)' }}>
+                                        <h5 className="font-medium mb-2" style={{ color: '#ea580c' }}>☁️ Qwen</h5>
+                                        <ul className="space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
+                                            <li>✓ Qwen3-TTS voices</li>
+                                            <li>✓ Cost-effective</li>
+                                            <li>✓ Custom voice cloning</li>
+                                            <li>✓ Multilingual support</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Tips */}
                             <div className="p-4 rounded-lg" style={{ background: 'rgba(212, 160, 23, 0.1)' }}>
                                 <h4 className="font-semibold mb-2" style={{ color: 'var(--color-accent)' }}>💡 Tips:</h4>
                                 <ul className="text-sm space-y-1" style={{ color: 'var(--color-text-secondary)' }}>
                                     <li>• The <b>default provider</b> will be used for AI marking and question generation</li>
-                                    <li>• <b>Claude Haiku</b> is recommended for fast, cost-effective responses</li>
-                                    <li>• <b>Gemini Flash</b> is a good free alternative</li>
-                                    <li>• <b>Qwen (AliCloud)</b> enables Qwen3-TTS for text-to-speech</li>
+                                    <li>• <b>Claude Haiku 4.5</b> is recommended for fast, cost-effective responses</li>
+                                    <li>• <b>Gemini 2.5 Flash</b> is a good free alternative with generous limits</li>
+                                    <li>• <b>Qwen (AliCloud)</b> enables Qwen3-TTS for text-to-speech with custom voices</li>
+                                    <li>• Configure multiple providers to easily switch between them for different tasks</li>
                                     <li>• Settings are auto-saved when you change the model or default provider</li>
                                 </ul>
                             </div>
@@ -5673,7 +5785,7 @@
                 }
 
                 if (!apiKey) {
-                    alert('Please configure your OpenAI API key in the main Settings page first (go to Settings > AI Providers > OpenAI)');
+                    alert('OpenAI API key is required for document embeddings. Please configure it in Settings → AI Providers → OpenAI. Your default provider will still be used for AI responses.');
                     return;
                 }
 
@@ -6138,7 +6250,7 @@
                 if (!input.trim() || chatLoading) return;
 
                 if (!apiKey) {
-                    alert('Please configure your OpenAI API key in the main Settings page first (go to Settings > AI Providers > OpenAI)');
+                    alert('OpenAI API key is required for document embeddings. Please configure it in Settings → AI Providers → OpenAI. Your default provider will still be used for AI responses.');
                     return;
                 }
 
@@ -6432,11 +6544,11 @@
                                 <h2 className="text-3xl font-bold font-display" style={{ color: 'var(--color-text)' }}>Document Chat</h2>
                                 {hasValidOpenAIKey ? (
                                     <p className="text-sm mt-1" style={{ color: 'var(--color-success)' }}>
-                                        OpenAI API connected • Using {currentProvider} for responses
+                                        ✓ Embeddings ready • Using <strong>{currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)}</strong> for AI responses
                                     </p>
                                 ) : (
                                     <p className="text-sm mt-1" style={{ color: 'var(--color-error)' }}>
-                                        OpenAI API key not configured
+                                        OpenAI API key required for document embeddings
                                     </p>
                                 )}
                             </div>
@@ -6446,12 +6558,12 @@
                     {/* API Key Status Banner */}
                     {!hasValidOpenAIKey && (
                         <div className="rounded-2xl p-4 mb-6" style={{ background: 'rgba(212, 160, 23, 0.1)', border: '1px solid var(--color-accent)' }}>
-                            <h3 className="font-semibold mb-2" style={{ color: 'var(--color-accent)' }}>API Key Required</h3>
+                            <h3 className="font-semibold mb-2" style={{ color: 'var(--color-accent)' }}>OpenAI API Key Required for Embeddings</h3>
                             <p className="text-sm mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-                                Document Chat requires an OpenAI API key for embeddings. Please configure it in the main Settings page.
+                                Document Chat uses OpenAI's embedding API to search your documents. You can still use <strong>{currentProvider.charAt(0).toUpperCase() + currentProvider.slice(1)}</strong> (your default provider) for AI responses.
                             </p>
                             <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                                Go to <strong>Settings → AI Providers → OpenAI</strong> to add your API key.
+                                Go to <strong>Settings → AI Providers → OpenAI</strong> to add your API key for embeddings.
                             </p>
                         </div>
                     )}

@@ -24,14 +24,33 @@ OPENAI_EMBEDDING_DIMENSION = 1536
 
 # Model lists
 CLAUDE_MODELS = [
-    {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4 (Latest)"},
-    {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
+    # Claude 4.5 (Latest)
+    {"id": "claude-opus-4-5-20251101", "name": "Claude Opus 4.5 (Most Capable)"},
+    {"id": "claude-sonnet-4-5-20250929", "name": "Claude Sonnet 4.5"},
     {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5 (Fast)"},
+    # Claude 4
+    {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"},
+    {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
+    # Claude 3.5 family
+    {"id": "claude-3-5-sonnet-20241022", "name": "Claude 3.5 Sonnet (Oct)"},
+    {"id": "claude-3-5-sonnet-20240620", "name": "Claude 3.5 Sonnet (Jun)"},
+    {"id": "claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku"},
 ]
 GEMINI_MODELS = [
-    {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash (Latest)"},
-    {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"},
-    {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash"},
+    # Gemini 3 (Latest - Preview)
+    {"id": "gemini-3-flash-preview", "name": "Gemini 3 Flash (Preview)"},
+    {"id": "gemini-3-pro-preview", "name": "Gemini 3 Pro (Preview)"},
+    {"id": "gemini-3-pro-image-preview", "name": "Gemini 3 Pro Image (Preview)"},
+    # Gemini 2.5 (Stable - Recommended)
+    {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash (Recommended)"},
+    {"id": "gemini-2.5-flash-lite", "name": "Gemini 2.5 Flash-Lite (Fast)"},
+    {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro (Thinking)"},
+    {"id": "gemini-2.5-flash-preview-09-2025", "name": "Gemini 2.5 Flash Preview"},
+    # Gemini 2.0 (Deprecated - Shutdown March 2026)
+    {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash (Deprecated)"},
+    {"id": "gemini-2.0-flash-lite", "name": "Gemini 2.0 Flash-Lite (Deprecated)"},
+    # Educational
+    {"id": "learnlm-1.5-pro-experimental", "name": "LearnLM 1.5 Pro (Educational)"},
 ]
 OPENAI_MODELS = [
     {"id": "gpt-4o", "name": "GPT-4o (Latest)"},
@@ -39,13 +58,34 @@ OPENAI_MODELS = [
     {"id": "gpt-4-turbo", "name": "GPT-4 Turbo"},
 ]
 
-# AliCloud (Qwen) Models
+# AliCloud (Qwen) Models - comprehensive list for DashScope (Updated Jan 2026)
 ALICLOUD_MODELS = [
-    {"id": "qwen-max", "name": "Qwen Max (Most Capable)"},
+    # Qwen3 Commercial (Latest - Recommended)
+    {"id": "qwen3-max", "name": "Qwen3 Max (Most Capable)"},
+    {"id": "qwen-max", "name": "Qwen Max"},
+    {"id": "qwen-max-latest", "name": "Qwen Max Latest"},
     {"id": "qwen-plus", "name": "Qwen Plus (Balanced)"},
-    {"id": "qwen-turbo", "name": "Qwen Turbo (Fast)"},
-    {"id": "qwen3-235b-a22b", "name": "Qwen3 235B"},
+    {"id": "qwen-plus-latest", "name": "Qwen Plus Latest"},
+    {"id": "qwen-flash", "name": "Qwen Flash (Fast, Recommended)"},
+    {"id": "qwen-turbo", "name": "Qwen Turbo (Legacy)"},
+    {"id": "qwen-long-latest", "name": "Qwen Long (10M Context)"},
+    # Qwen3 Coding Models
+    {"id": "qwen3-coder-plus", "name": "Qwen3 Coder Plus"},
+    {"id": "qwen3-coder-flash", "name": "Qwen3 Coder Flash"},
+    # Qwen3 Open Source Models
+    {"id": "qwen3-235b-a22b", "name": "Qwen3 235B A22B (MoE)"},
     {"id": "qwen3-32b", "name": "Qwen3 32B"},
+    {"id": "qwen3-30b-a3b", "name": "Qwen3 30B A3B (MoE)"},
+    {"id": "qwen3-14b", "name": "Qwen3 14B"},
+    {"id": "qwen3-8b", "name": "Qwen3 8B"},
+    {"id": "qwen3-4b", "name": "Qwen3 4B"},
+    # Reasoning Models (QwQ)
+    {"id": "qwq-plus", "name": "QwQ Plus (Advanced Reasoning)"},
+    {"id": "qwq-plus-latest", "name": "QwQ Plus Latest"},
+    {"id": "qwq-32b", "name": "QwQ 32B"},
+    # Qwen2.5 Models (Legacy)
+    {"id": "qwen2.5-72b-instruct", "name": "Qwen2.5 72B Instruct"},
+    {"id": "qwen2.5-32b-instruct", "name": "Qwen2.5 32B Instruct"},
 ]
 
 # AliCloud TTS Voices
@@ -113,10 +153,6 @@ def validate_claude_key(api_key):
         return {"valid": False, "error": f"Error: {e.code}"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
-
-def validate_gemini_key(api_key):
-    """Validate Gemini API key and fetch available models"""
-    return validate_gemini_key_with_models(api_key)
 
 def list_openai_models(api_key, timeout=15):
     """Fetch all models from OpenAI API"""
@@ -234,53 +270,77 @@ def validate_openai_key(api_key):
     except (RuntimeError, ConnectionError) as e:
         return {"valid": False, "error": str(e)}
 
-def validate_gemini_key_with_models(api_key):
-    """Validate Gemini API key and fetch available models"""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    req = urllib.request.Request(url)
+def validate_gemini_key(api_key):
+    """Validate Gemini API key with a quick test call"""
+    # Quick validation - just check if key works with a minimal request
+    # Using gemini-2.5-flash-lite (fastest/cheapest stable model)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={api_key}"
+    headers = {'Content-Type': 'application/json'}
+    data = json.dumps({"contents": [{"parts": [{"text": "hi"}]}], "generationConfig": {"maxOutputTokens": 1}}).encode()
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            models = []
-            for m in data.get('models', []):
-                name = m.get('name', '').replace('models/', '')
-                display = m.get('displayName', name)
-                # Filter to generative models
-                if 'gemini' in name.lower():
-                    models.append({"id": name, "name": display})
-            models.sort(key=lambda x: x['name'], reverse=True)
-            return {"valid": True, "models": models[:10] if models else GEMINI_MODELS}
+            return {"valid": True, "models": GEMINI_MODELS}
     except urllib.error.HTTPError as e:
         if e.code in [400, 401, 403]:
-            return {"valid": False, "error": "Invalid API key"}
+            error_body = ""
+            try:
+                error_body = e.read().decode('utf-8')[:200]
+            except:
+                pass
+            if 'API_KEY_INVALID' in error_body or e.code == 401:
+                return {"valid": False, "error": "Invalid API key"}
+            # 400 might mean key is valid but request format issue - treat as valid
+            if e.code == 400:
+                return {"valid": True, "models": GEMINI_MODELS}
+            return {"valid": False, "error": f"Error: {error_body or e.code}"}
         return {"valid": False, "error": f"Error: {e.code}"}
     except Exception as e:
         return {"valid": False, "error": str(e)}
 
+def validate_gemini_key_with_models(api_key):
+    """Alias for backwards compatibility"""
+    return validate_gemini_key(api_key)
+
 def validate_alicloud_key(api_key):
-    """Validate AliCloud (DashScope) API key by making a minimal request"""
-    url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+    """Validate AliCloud (DashScope) API key - tries both international and China endpoints"""
+    # Try both endpoints - international first, then China
+    endpoints = [
+        ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", "intl"),
+        ("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", "cn"),
+    ]
+
     headers = {
         'Authorization': f'Bearer {api_key}',
         'Content-Type': 'application/json'
     }
     data = json.dumps({
-        "model": "qwen-turbo",
-        "input": {"messages": [{"role": "user", "content": "hi"}]},
-        "parameters": {"max_tokens": 1}
+        "model": "qwen-flash",  # Using qwen-flash (fast, recommended)
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1
     }).encode()
-    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            return {"valid": True, "models": ALICLOUD_MODELS}
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            return {"valid": False, "error": "Invalid API key"}
-        elif e.code == 400:
-            return {"valid": True, "models": ALICLOUD_MODELS}  # Bad request but key is valid
-        return {"valid": False, "error": f"Error: {e.code}"}
-    except Exception as e:
-        return {"valid": False, "error": str(e)}
+
+    last_error = None
+    for url, region in endpoints:
+        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                # Success! Return the region info so we know which endpoint works
+                return {"valid": True, "models": ALICLOUD_MODELS, "region": region}
+        except urllib.error.HTTPError as e:
+            if e.code == 400:
+                # Bad request but key is valid for this endpoint
+                return {"valid": True, "models": ALICLOUD_MODELS, "region": region}
+            error_body = ""
+            try:
+                error_body = e.read().decode('utf-8')
+            except:
+                pass
+            last_error = f"Error {e.code}: {error_body[:150] if error_body else 'Unknown'}"
+        except Exception as e:
+            last_error = str(e)
+
+    return {"valid": False, "error": f"Invalid API key for both International and China endpoints. Get your key from: International: bailian.console.alibabacloud.com | China: dashscope.console.aliyun.com"}
 
 # AI Provider Call Functions
 def call_claude(api_key, model, prompt, max_tokens=1024):
@@ -368,31 +428,46 @@ def call_gemini(api_key, model, prompt, max_tokens=1024):
         return {"success": False, "error": str(e)}
 
 def call_alicloud(api_key, model, prompt, max_tokens=1024):
-    """Call AliCloud (DashScope/Qwen) API"""
-    url = "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+    """Call AliCloud (DashScope/Qwen) API - tries both international and China endpoints"""
+    endpoints = [
+        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+    ]
+
     headers = {
         'Authorization': f'Bearer {api_key}',
         'Content-Type': 'application/json'
     }
     data = json.dumps({
         "model": model,
-        "input": {"messages": [{"role": "user", "content": prompt}]},
-        "parameters": {"max_tokens": max_tokens}
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens
     }).encode()
-    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
-    try:
-        with urllib.request.urlopen(req, timeout=60) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            content = result.get('output', {}).get('text', '')
-            # Try alternative response paths
-            if not content:
-                content = result.get('output', {}).get('choices', [{}])[0].get('message', {}).get('content', '')
-            return {"success": True, "content": content}
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode('utf-8') if e.fp else str(e)
-        return {"success": False, "error": f"AliCloud API error: {e.code} - {error_body}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+
+    last_error = None
+    for url in endpoints:
+        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+                return {"success": True, "content": content}
+        except urllib.error.HTTPError as e:
+            error_body = ""
+            try:
+                error_body = e.read().decode('utf-8')
+            except:
+                pass
+            # If it's a 401, try the next endpoint
+            if e.code == 401:
+                last_error = f"AliCloud API error: {e.code} - {error_body[:200]}"
+                continue
+            # Other errors, return immediately
+            return {"success": False, "error": f"AliCloud API error: {e.code} - {error_body}"}
+        except Exception as e:
+            last_error = str(e)
+
+    return {"success": False, "error": last_error or "Failed to connect to AliCloud API"}
 
 # ============================================
 # RAG HELPER FUNCTIONS
@@ -822,26 +897,8 @@ class handler(BaseHTTPRequestHandler):
                 settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
             s = settings[0] if settings else {}
 
-            # Fetch dynamic models for validated providers
+            # Use static model lists (updated Jan 2026) - skip dynamic fetching for faster loading
             models = {"claude": CLAUDE_MODELS, "gemini": GEMINI_MODELS, "openai": OPENAI_MODELS, "alicloud": ALICLOUD_MODELS}
-
-            # If OpenAI key is validated, fetch dynamic model list
-            if s.get('openai_validated') and s.get('openai_api_key'):
-                try:
-                    result = validate_openai_key(s['openai_api_key'])
-                    if result.get('valid') and result.get('models'):
-                        models['openai'] = result['models']
-                except:
-                    pass  # Fall back to static models
-
-            # If Gemini key is validated, fetch dynamic model list
-            if s.get('gemini_validated') and s.get('gemini_api_key'):
-                try:
-                    result = validate_gemini_key_with_models(s['gemini_api_key'])
-                    if result.get('valid') and result.get('models'):
-                        models['gemini'] = result['models']
-                except:
-                    pass  # Fall back to static models
 
             # Mask API keys for response
             for k in ['claude_api_key', 'gemini_api_key', 'openai_api_key', 'alicloud_api_key']:
@@ -1551,9 +1608,9 @@ Return ONLY a JSON array with this format:
             elif provider == 'openai':
                 result = call_openai(api_key, model or 'gpt-4o-mini', prompt)
             elif provider == 'gemini':
-                result = call_gemini(api_key, model or 'gemini-2.0-flash', prompt)
+                result = call_gemini(api_key, model or 'gemini-2.5-flash', prompt)
             elif provider == 'alicloud':
-                result = call_alicloud(api_key, model or 'qwen-turbo', prompt)
+                result = call_alicloud(api_key, model or 'qwen-flash', prompt)
             else:
                 self._json_response(400, {"error": f"Unknown provider: {provider}"})
                 return
@@ -1618,9 +1675,9 @@ Return ONLY a JSON array with this format:
             elif provider == 'openai':
                 result = call_openai(api_key, model or 'gpt-4o-mini', prompt)
             elif provider == 'gemini':
-                result = call_gemini(api_key, model or 'gemini-2.0-flash', prompt)
+                result = call_gemini(api_key, model or 'gemini-2.5-flash', prompt)
             elif provider == 'alicloud':
-                result = call_alicloud(api_key, model or 'qwen-turbo', prompt)
+                result = call_alicloud(api_key, model or 'qwen-flash', prompt)
             else:
                 self._json_response(400, {"error": f"Unknown provider: {provider}"})
                 return
