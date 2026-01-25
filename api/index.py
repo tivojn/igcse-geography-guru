@@ -889,11 +889,12 @@ class handler(BaseHTTPRequestHandler):
 
         if '/ai/settings' in path:
             user_id = self._get_user_id()
-            settings = None
-            if user_id:
-                settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+            # Use default user_id for demo/single-user mode (must match PUT handler)
+            if not user_id:
+                user_id = '00000000-0000-0000-0000-000000000001'
+            settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
             if not settings:
-                # Fallback: get first ai_settings record (for single-user/demo mode)
+                # Fallback: get first ai_settings record (for legacy data)
                 settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
             s = settings[0] if settings else {}
 
@@ -1534,14 +1535,26 @@ class handler(BaseHTTPRequestHandler):
         # Update AI settings
         if '/ai/settings' in path:
             user_id = self._get_user_id()
-            # Use default user_id for demo/single-user mode if no session
-            if not user_id:
-                user_id = '00000000-0000-0000-0000-000000000001'
-            data = {'user_id': user_id}
+            # Find existing settings record to update
+            settings = None
+            if user_id:
+                settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+            if not settings:
+                # Fallback: get first record (for demo/single-user/legacy mode)
+                settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
+
+            data = {}
             for key in ['default_provider', 'claude_model', 'gemini_model', 'openai_model', 'alicloud_model', 'tts_provider', 'tts_voice']:
                 if key in body:
                     data[key] = body[key]
-            supabase_upsert('ai_settings', data)
+
+            if settings and settings[0].get('id'):
+                # Update existing record by ID
+                supabase_patch('ai_settings', data, {'id': f"eq.{settings[0]['id']}"})
+            else:
+                # No existing record, create new one
+                data['user_id'] = user_id or '00000000-0000-0000-0000-000000000001'
+                supabase_upsert('ai_settings', data)
             self._json_response(200, {"success": True})
             return
 

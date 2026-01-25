@@ -6778,6 +6778,12 @@
                                                 : 'Ask questions across all selected documents'}
                                         </p>
                                     )}
+                                    {settings?.default_provider && (
+                                        <p className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--color-accent)' }}>
+                                            <span>{settings.default_provider === 'claude' ? '🔮' : settings.default_provider === 'gemini' ? '💎' : settings.default_provider === 'openai' ? '🤖' : '☁️'}</span>
+                                            <span>Using: {settings.default_provider === 'alicloud' ? 'Qwen' : settings.default_provider.charAt(0).toUpperCase() + settings.default_provider.slice(1)} ({settings[`${settings.default_provider}_model`] || 'default'})</span>
+                                        </p>
+                                    )}
                                 </div>
                                 {selectedDocs.length === 1 && documents.find(d => d.id === selectedDocs[0])?.public_url && (
                                     <button
