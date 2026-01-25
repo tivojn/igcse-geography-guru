@@ -892,10 +892,10 @@ class handler(BaseHTTPRequestHandler):
             # Use default user_id for demo/single-user mode (must match PUT handler)
             if not user_id:
                 user_id = '00000000-0000-0000-0000-000000000001'
-            settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+            settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}', 'order': 'id.desc', 'limit': '1'})
             if not settings:
-                # Fallback: get first ai_settings record (for legacy data)
-                settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
+                # Fallback: get most recent ai_settings record (for legacy data)
+                settings = supabase_get('ai_settings', {'select': '*', 'order': 'id.desc', 'limit': '1'})
             s = settings[0] if settings else {}
 
             # Use static model lists (updated Jan 2026) - skip dynamic fetching for faster loading
@@ -1535,13 +1535,13 @@ class handler(BaseHTTPRequestHandler):
         # Update AI settings
         if '/ai/settings' in path:
             user_id = self._get_user_id()
-            # Find existing settings record to update
+            # Find existing settings record to update (order by id desc to get most recent)
             settings = None
             if user_id:
-                settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}'})
+                settings = supabase_get('ai_settings', {'user_id': f'eq.{user_id}', 'order': 'id.desc', 'limit': '1'})
             if not settings:
-                # Fallback: get first record (for demo/single-user/legacy mode)
-                settings = supabase_get('ai_settings', {'select': '*', 'limit': '1'})
+                # Fallback: get most recent record (for demo/single-user/legacy mode)
+                settings = supabase_get('ai_settings', {'select': '*', 'order': 'id.desc', 'limit': '1'})
 
             data = {}
             for key in ['default_provider', 'claude_model', 'gemini_model', 'openai_model', 'alicloud_model', 'tts_provider', 'tts_voice']:
