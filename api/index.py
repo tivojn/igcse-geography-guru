@@ -1763,7 +1763,9 @@ Return ONLY a JSON array with this format:
                     else:
                         # Custom voice - get voice_type from request body
                         voice_type = body.get('voice_type', 'designed')
+                        print(f"[TTS Debug] Custom voice TTS: voice={voice}, voice_type={voice_type}")
                         result = generate_tts_custom_voice(text, voice, voice_type, alicloud_key)
+                        print(f"[TTS Debug] Custom voice result: {'audio' in result and 'has audio' or result.get('error', 'unknown')}")
 
                     if "error" in result:
                         self._json_response(500, {"error": result["error"]})

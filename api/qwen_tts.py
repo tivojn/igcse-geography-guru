@@ -300,6 +300,10 @@ def design_voice(voice_prompt: str, preferred_name: str, language: str, preview_
         }
     }
 
+    import sys
+    print(f"[Voice Design] Creating voice with prompt: '{voice_prompt}'", flush=True)
+    print(f"[Voice Design] Language: {language}, Name: {preferred_name}", flush=True)
+    sys.stdout.flush()
     data = json.dumps(payload).encode()
 
     try:
@@ -315,6 +319,8 @@ def design_voice(voice_prompt: str, preferred_name: str, language: str, preview_
             if not voice_id:
                 return {"error": f"No voice ID returned: {json.dumps(result)[:300]}"}
 
+            print(f"[Voice Design] SUCCESS! Created voice_id: {voice_id}")
+            print(f"[Voice Design] Preview audio size: {len(preview_data) if preview_data else 0} bytes")
             return {
                 "voice_id": voice_id,
                 "preview_audio": preview_data,
@@ -506,6 +512,7 @@ def generate_tts_custom_voice(text: str, voice_id: str, voice_type: str, api_key
 
     # WebSocket URL with model as query param (vibevoice format)
     ws_url = f"wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model={model}"
+    print(f"[WS TTS] Connecting to {ws_url} with voice_id={voice_id}")
 
     audio_chunks = []
     error_msg = [None]
@@ -516,9 +523,11 @@ def generate_tts_custom_voice(text: str, voice_id: str, voice_type: str, api_key
         try:
             data = json.loads(message)
             event_type = data.get("type", "")
+            print(f"[WS TTS] Received event: {event_type}")
 
             if event_type == "session.created":
                 state["phase"] = "session_created"
+                print(f"[WS TTS] Session created, sending voice settings for: {voice_id}")
                 # Send session.update with voice settings
                 ws.send(json.dumps({
                     "type": "session.update",
@@ -564,13 +573,16 @@ def generate_tts_custom_voice(text: str, voice_id: str, voice_type: str, api_key
             done_event.set()
 
     def on_error(ws, error):
+        print(f"[WS TTS] Error: {error}")
         error_msg[0] = str(error)
         done_event.set()
 
     def on_close(ws, close_status_code, close_msg):
+        print(f"[WS TTS] Connection closed: status={close_status_code}, msg={close_msg}")
         done_event.set()
 
     def on_open(ws):
+        print(f"[WS TTS] Connection opened")
         state["phase"] = "connected"
         # Wait for session.created message from server
 
@@ -593,12 +605,15 @@ def generate_tts_custom_voice(text: str, voice_id: str, voice_type: str, api_key
 
     # Wait for completion (max 60 seconds)
     done_event.wait(timeout=60)
+    print(f"[WS TTS] Wait completed. State: {state['phase']}, chunks: {len(audio_chunks)}, error: {error_msg[0]}")
     ws.close()
 
     if error_msg[0]:
+        print(f"[WS TTS] Returning error: {error_msg[0]}")
         return {"error": f"TTS error: {error_msg[0]}"}
 
     if not audio_chunks:
+        print(f"[WS TTS] No audio chunks received. State: {state['phase']}")
         return {"error": f"No audio received. State: {state['phase']}"}
 
     # Combine audio chunks (PCM data)

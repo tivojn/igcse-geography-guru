@@ -596,6 +596,9 @@
                     requestBody.voice_type = ttsSettings.voice_type;
                 }
 
+                console.log('[TTS Debug] Request:', JSON.stringify(requestBody, null, 2));
+                console.log('[TTS Debug] tts_settings from localStorage:', JSON.stringify(ttsSettings, null, 2));
+
                 fetch('/api/tts/speak', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -620,14 +623,15 @@
                         };
                     } else if (data.error) {
                         console.error('TTS error:', data.error);
-                        // Show brief error notification
-                        if (data.error.includes('API key')) {
-                            alert('TTS Error: Please check your AliCloud API key in Settings');
-                        }
+                        // Show error notification for all TTS errors
+                        alert('TTS Error: ' + data.error);
+                    } else {
+                        console.warn('TTS response had no audio and no error:', data);
                     }
                 })
                 .catch(err => {
                     console.error('TTS request failed:', err);
+                    alert('TTS request failed: ' + err.message);
                 });
             }
 
